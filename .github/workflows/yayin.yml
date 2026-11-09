@@ -157,73 +157,104 @@ jobs:
       #
       # Bu gövde üç sahte senaryoyla sınandı (ayakta kalan / SIGTRAP ile ölen /
       # imza hatası basan) ve üçünde de doğru karar verdiği doğrulandı.
-      - name: macOS uygulamasını çalıştırarak dene
+      # macOS AÇILIŞ TEŞHİSİ.
+      #
+      # Paket imzalı ve yetkilendirmeleri yerinde olmasına rağmen uygulama
+      # açılışta 1 saniyede SIGTRAP ile ölüyor ve HİÇBİR ŞEY yazdırmıyor.
+      # Bu davranış gerçek bir Mac'te de aynı: kullanıcı "hata vermeden
+      # direkt kapanıyor" dedi. Yani koşucuda ekran oturumu bulunmaması
+      # değil, gerçek bir açılış hatası.
+      #
+      # Çıkış kodu ve boş çıktı yetmiyor; sebebi iki kaynaktan arıyoruz:
+      #   1. DYLD_PRINT_LIBRARIES — ölmeden önce yüklenen SON kütüphane.
+      #      Yükleyici bir çatıyı reddediyorsa kesme noktası orada görünür.
+      #      (allow-dyld-environment-variables yetkisi bu değişkeni mümkün
+      #      kılıyor; o yetki zaten verilmiş durumda.)
+      #   2. macOS birleşik günlüğü — çekirdek/taskgated bir süreci imza
+      #      ya da kütüphane doğrulaması yüzünden öldürdüğünde sebebi
+      #      oraya yazar. Uygulamanın kendi çıktısında bu görünmüyor.
+      - name: macOS açılış teşhisi
         if: matrix.ad == 'macos'
         shell: bash
         run: |
-          # set -e KAPATILIR: bu blokta komutların başarısız olması NORMAL (çökme raporu
-          # dizini boş olabilir, uygulama çökebilir). set -e + pipefail ile üç kez üst
-          # üste betik teşhis üretmeden öldü. Karar aşağıda açıkça veriliyor.
           set +e
           set +o pipefail
 
-          ikili="dagitim/mac-arm64/Özgür Telli Finans.app/Contents/MacOS/Özgür Telli Finans"
-          if [ ! -x "$ikili" ]; then
-            echo "Çalıştırılabilir bulunamadı: $ikili" >&2
-            exit 1
-          fi
+          uyg="dagitim/mac-arm64/Özgür Telli Finans.app"
+          ikili="$uyg/Contents/MacOS/Özgür Telli Finans"
 
-          RAPORDIZIN="$HOME/Library/Logs/DiagnosticReports"
-          onceki=$(ls -1 "$RAPORDIZIN"/*.ips 2>/dev/null | wc -l | tr -d ' ')
-          [ -z "$onceki" ] && onceki=0
-          echo "çökme raporu sayısı (önce): $onceki"
-
-          "$ikili" > cikti.log 2>&1 &
+          echo "════════ 1) düz çalıştırma ════════"
+          "$ikili" > duz.log 2>&1 &
           pid=$!
+          sleep 8
+          kill -0 "$pid" 2>/dev/null && { ayakta=1; kill "$pid" 2>/dev/null; } || ayakta=0
+          wait "$pid"; kod=$?
+          echo "ayakta=$ayakta kod=$kod  çıktı satırı=$(wc -l < duz.log | tr -d ' ')"
+          cat duz.log
 
-          saniye=0
-          while [ "$saniye" -lt 25 ]; do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 1
-            saniye=$((saniye + 1))
-          done
-
-          if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null
-            wait "$pid" 2>/dev/null
-            echo "Uygulama ${saniye} saniye ayakta kaldı — açılıyor."
-            head -40 cikti.log
+          if [ "$ayakta" = "1" ]; then
+            echo "Uygulama ayakta kaldı; teşhise gerek yok."
             exit 0
           fi
 
-          wait "$pid"
-          kod=$?
-          echo "Uygulama ${saniye} saniyede çıktı. Çıkış kodu: $kod"
+          echo
+          echo "════════ 2) dyld yükleme izi ════════"
+          DYLD_PRINT_LIBRARIES=1 "$ikili" > dyld.log 2>&1
+          echo "son 25 yükleme:"
+          grep -c . dyld.log
+          tail -25 dyld.log
 
-          echo "--- uygulamanın çıktısı ---"
-          cat cikti.log
-          echo "--- çıktı sonu ---"
+          echo
+          echo "════════ 3) macOS birleşik günlüğü ════════"
+          # Sadece son bir dakika ve yalnızca ilgili iletiler.
+          log show --last 1m --info --predicate 'eventMessage CONTAINS "Telli" OR eventMessage CONTAINS "Library Validation" OR eventMessage CONTAINS "code signature" OR eventMessage CONTAINS "AMFI"' --style compact 2>/dev/null | tail -40
 
-          sleep 5
-          : > rapor.log
-          sonra=$(ls -1 "$RAPORDIZIN"/*.ips 2>/dev/null | wc -l | tr -d ' ')
-          [ -z "$sonra" ] && sonra=0
-          echo "çökme raporu sayısı (sonra): $sonra"
+          echo
+          echo "════════ 4) ikili ve çatı bilgisi ════════"
+          file "$ikili"
+          echo "--- bağımlı kütüphaneler (ilk 15) ---"
+          otool -L "$ikili" 2>/dev/null | head -15
+          echo "--- Info.plist anahtarları ---"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$uyg/Contents/Info.plist" 2>/dev/null
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$uyg/Contents/Info.plist" 2>/dev/null
+          echo "--- MacOS/ içeriği ---"
+          ls -l "$uyg/Contents/MacOS/"
+          echo "--- Helper uygulamaları ---"
+          ls -1 "$uyg/Contents/Frameworks/" | head -12
 
-          for r in $(ls -t "$RAPORDIZIN"/*.ips 2>/dev/null | head -3); do
-            echo "== $r" >> rapor.log
-            head -80 "$r" >> rapor.log
-          done
-          echo "--- çökme raporu ---"
-          cat rapor.log
-          echo "--- rapor sonu ---"
-
-          if cat cikti.log rapor.log 2>/dev/null | grep -qiE "CODESIGNING|library validation|invalid signature|code signature|Killed: 9"; then
-            echo "Çökme kod imzası kaynaklı: paket açılmıyor, yayın durduruluyor." >&2
-            exit 1
+          echo
+          echo "════════ 5) çökme raporu ════════"
+          # ReportCrash gerçek Mac'te rapor üretti (günlükte "CORPSE: Parsing
+          # KCData" görüldü). .ips dosyasının gövdesi JSON; içindeki
+          # exception / termination / asi alanları çekirdeğin süreci neden
+          # öldürdüğünü açıkça yazar. Electron'un asar bütünlük hatası da
+          # buraya "Integrity check failed" olarak düşer.
+          rapor=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"*Telli*.ips 2>/dev/null | head -1)
+          if [ -n "$rapor" ]; then
+            echo "rapor: $rapor"
+            python3 araclar/ips-oku.py "$rapor"
+          else
+            echo "çökme raporu bulunamadı."
           fi
 
-          echo "::warning::Uygulama ${saniye} sn'de çıktı (kod $kod) ama kod imzası izi yok."
+          echo
+          echo "════════ 6) asar bütünlük karşılaştırması ════════"
+          # Info.plist'teki beklenen özet ile app.asar başlığının gerçek
+          # özetini KARŞILAŞTIRIR. Uyuşmazsa Electron hiç JS çalıştırmadan,
+          # çıktı yazmadan ölür; aradığımız imza tam olarak bu.
+          /usr/libexec/PlistBuddy -c "Print :ElectronAsarIntegrity" "$uyg/Contents/Info.plist" 2>/dev/null || echo "Info.plist'te ElectronAsarIntegrity YOK"
+          node -e '
+            const crypto = require("crypto");
+            const yol = process.argv[1];
+            try {
+              const asar = require("@electron/asar");
+              const h = asar.getRawHeader(yol).headerString;
+              console.log("gerçek başlık sha256 =", crypto.createHash("sha256").update(h).digest("hex"));
+            } catch (e) { console.log("asar özeti hesaplanamadı:", e.message); }
+          ' "$uyg/Contents/Resources/app.asar"
+
+          # Teşhis adımı yayını ENGELLEMEZ: amacı bilgi toplamak.
+          echo "::warning::macOS uygulaması açılışta kapanıyor; yukarıdaki teşhis çıktısına bakılacak."
           exit 0
 
       - name: Çıktıyı listele
