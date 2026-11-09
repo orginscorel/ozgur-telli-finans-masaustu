@@ -92,7 +92,11 @@ jobs:
             bulundu=1
             echo "── $uyg"
             codesign --verify --deep --strict --verbose=2 "$uyg"
-            codesign -dvv "$uyg" 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier' || true
+            codesign -dvv "$uyg" 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier|Runtime' || true
+            # Yetkilendirmeler GERCEKTEN uygulanmis mi: ad-hoc imzada
+            # disable-library-validation yoksa uygulama acilmiyor.
+            echo "   yetkilendirmeler:"
+            codesign -d --entitlements :- "$uyg" 2>/dev/null | grep -oE 'com\.apple\.security\.cs\.[a-z-]+' | sed 's/^/     /' || echo "     (okunamadi)"
           done
           if [ "$bulundu" -eq 0 ]; then
             echo "Doğrulanacak .app bulunamadı." >&2
@@ -152,7 +156,11 @@ jobs:
             exit 0
           fi
 
-          wait "$pid"; kod=$?
+          # "wait" cocugun cikis kodunu dondurur; set -e yuzunden bu satirda
+          # betik oluyordu ve asagidaki teshis hic basilmiyordu. Kod || ile
+          # yakalanir.
+          kod=0
+          wait "$pid" || kod=$?
           echo "Uygulama ${saniye} saniyede çıktı. Çıkış kodu: $kod"
           echo "--- çıktı ---"
           head -60 cikti.log || true

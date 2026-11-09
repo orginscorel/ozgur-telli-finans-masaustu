@@ -77,19 +77,20 @@ mac:
   # yine uyarır, ama bu kez aşılabilir bir uyarı ("geliştirici doğrulanamadı")
   # ve sağ tık → Aç ile geçilir.
   identity: '-'
-  # Hardened Runtime KAPALI.
+  # Hardened Runtime AÇIK + ad-hoc imza için gereken yetkilendirmeler.
   #
-  # electron-builder bunu varsayılan olarak açıyor ve derleme sırasında şu
-  # uyarıyı veriyordu: "ad-hoc signing with hardenedRuntime enabled requires
-  # the com.apple.security.cs.disable-library-validation entitlement to prevent
-  # app launch failures". Yani açık Hardened Runtime + ad-hoc imza birleşince
-  # kütüphane doğrulaması uygulamanın kendi çatılarını yüklemesini engelliyor
-  # ve uygulama açılmıyor. 2.0.2 imzalı çıktı ama bu yüzden hâlâ açılmama
-  # riski taşıyordu.
+  # Önce "hardenedRuntime: false" denendi ve YANLIŞ çıktı: electron-builder
+  # Hardened Runtime açıkken JIT ve kütüphane yetkilerini kendi varsayılan
+  # listesinden veriyor; kapatınca liste de uygulanmıyor ve uygulama açılışta
+  # SIGTRAP (çıkış kodu 133) ile ölüyor. Derleme kaydındaki uyarı aslında
+  # doğrudan çözümü söylüyordu: eksik olan şey disable-library-validation
+  # yetkisiydi, Hardened Runtime değil.
   #
-  # Hardened Runtime yalnızca notarize için gerekli; notarize Apple Developer
-  # hesabı istiyor ve yapılmıyor. Kapatmak bu kurguda hiçbir şey kaybettirmiyor.
-  hardenedRuntime: false
+  # Yetkiler varliklar/entitlements.mac.plist içinde ve neden gerektikleri
+  # orada tek tek açıklandı.
+  hardenedRuntime: true
+  entitlements: varliklar/entitlements.mac.plist
+  entitlementsInherit: varliklar/entitlements.mac.plist
 
 dmg:
   title: Özgür Telli Finans ${version}

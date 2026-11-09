@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    macOS yetkilendirmeleri.
+
+    electron-builder Hardened Runtime'ı açıkken bu dört yetkiyi kendi varsayılan
+    listesinden veriyor. Hardened Runtime kapatıldığında liste de uygulanmıyor ve
+    uygulama açılışta SIGTRAP ile ölüyor: V8 kendi JIT belleğini ayıramıyor,
+    Electron de kendi çatılarını yükleyemiyor.
+
+    Doğru çözüm Hardened Runtime'ı kapatmak değil, ad-hoc imzanın ihtiyaç duyduğu
+    yetkiyi eklemek. electron-builder'ın derleme sırasında verdiği uyarı da tam
+    bunu söylüyordu: "requires the com.apple.security.cs.disable-library-validation
+    entitlement to prevent app launch failures".
+-->
+<plist version="1.0">
+<dict>
+    <!-- V8 çalışma zamanında makine kodu üretir; bu yetki olmadan JIT belleği
+         ayrılamaz ve süreç açılışta düşer. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- Ad-hoc imzada kütüphane doğrulaması uygulamanın KENDİ çatılarını
+         reddediyor; imzalar Apple'a kadar zincirlenemediği için. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>
