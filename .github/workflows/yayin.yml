@@ -159,20 +159,27 @@ jobs:
       # imza hatası basan) ve üçünde de doğru karar verdiği doğrulandı.
       # macOS AÇILIŞ TEŞHİSİ.
       #
-      # Paket imzalı ve yetkilendirmeleri yerinde olmasına rağmen uygulama
-      # açılışta 1 saniyede SIGTRAP ile ölüyor ve HİÇBİR ŞEY yazdırmıyor.
-      # Bu davranış gerçek bir Mac'te de aynı: kullanıcı "hata vermeden
-      # direkt kapanıyor" dedi. Yani koşucuda ekran oturumu bulunmaması
-      # değil, gerçek bir açılış hatası.
+      # Paket imzalı, yetkilendirmeleri yerinde ve asar bütünlüğü doğru
+      # olmasına rağmen uygulama açılışta SIGTRAP ile ölüyor. Gerçek bir
+      # Mac'te de aynı: kullanıcı "hata vermeden direkt kapanıyor" dedi.
       #
-      # Çıkış kodu ve boş çıktı yetmiyor; sebebi iki kaynaktan arıyoruz:
-      #   1. DYLD_PRINT_LIBRARIES — ölmeden önce yüklenen SON kütüphane.
-      #      Yükleyici bir çatıyı reddediyorsa kesme noktası orada görünür.
-      #      (allow-dyld-environment-variables yetkisi bu değişkeni mümkün
-      #      kılıyor; o yetki zaten verilmiş durumda.)
-      #   2. macOS birleşik günlüğü — çekirdek/taskgated bir süreci imza
-      #      ya da kütüphane doğrulaması yüzünden öldürdüğünde sebebi
-      #      oraya yazar. Uygulamanın kendi çıktısında bu görünmüyor.
+      # Şu ana kadar ELENENLER:
+      #   asar bütünlüğü     beklenen özet = gerçek özet
+      #   imza/kütüphane      dyld 1179 kütüphane yükledi, AppKit'e girdi
+      #   GPU/yardımcılar     --disable-gpu --no-sandbox ile de ölüyor
+      #   platform/Electron   çıplak Electron 45.2.3 aynı koşucuda çalıştı
+      #   bizim modül kodu    iz "modül sonu"na kadar gidiyor
+      #
+      # KALAN: modül bitti, ready HİÇ gelmiyor, CrBrowserMain'de brk #0.
+      # Yani suçlu Electron'un ready öncesi kurulumunu etkileyen bir
+      # paket özelliği. Aşağıdaki denetimler birer birer o özellikleri
+      # değiştirip hangisinin kurtardığını ölçer.
+      #
+      # ÖNEMLİ: her deneme ZAMAN SINIRLI. Önceki turda denemeler ön planda
+      # ve sınırsız çalıştırıldı; bir deneme ölmeyince adım 45 dakika
+      # takıldı ve hiçbir çıktı alınamadı (GitHub süren işin günlüğünü
+      # vermiyor). macOS'ta "timeout" komutu bulunmadığı için sınır
+      # arka plana atıp beklemekle konuyor.
       - name: macOS açılış teşhisi
         if: matrix.ad == 'macos'
         shell: bash
@@ -183,185 +190,104 @@ jobs:
           uyg="dagitim/mac-arm64/Özgür Telli Finans.app"
           ikili="$uyg/Contents/MacOS/Özgür Telli Finans"
 
-          echo "════════ 1) düz çalıştırma ════════"
-          FZY_IZ=1 "$ikili" > duz.log 2>&1 &
-          pid=$!
-          sleep 8
-          kill -0 "$pid" 2>/dev/null && { ayakta=1; kill "$pid" 2>/dev/null; } || ayakta=0
-          wait "$pid"; kod=$?
-          echo "ayakta=$ayakta kod=$kod  çıktı satırı=$(wc -l < duz.log | tr -d ' ')"
-          cat duz.log
+          # dene <etiket> <günlük> <komut...>
+          # Komutu en çok 10 saniye çalıştırır. Ayakta kalırsa öldürür ve
+          # "AYAKTA" der; kendisi ölürse çıkış kodunu yazar. Ayakta kalmak
+          # BAŞARI demek: uygulama açılıyor.
+          dene() {
+            etiket="$1"; gunluk="$2"; shift 2
+            "$@" > "$gunluk" 2>&1 &
+            pid=$!
+            bekleme=0
+            while [ "$bekleme" -lt 10 ]; do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+              bekleme=$((bekleme + 1))
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              kill "$pid" 2>/dev/null
+              wait "$pid" 2>/dev/null
+              echo "$etiket → AYAKTA KALDI (10 sn) ✔"
+            else
+              wait "$pid" 2>/dev/null
+              echo "$etiket → öldü, çıkış kodu $?"
+            fi
+            echo "   iz: $(grep -c '^\[iz\]' "$gunluk" 2>/dev/null) satır, son: $(grep '^\[iz\]' "$gunluk" 2>/dev/null | tail -1)"
+          }
 
-          if [ "$ayakta" = "1" ]; then
-            echo "Uygulama ayakta kaldı; teşhise gerek yok."
-            exit 0
-          fi
-
-          echo
-          echo "════════ 2) dyld yükleme izi ════════"
-          DYLD_PRINT_LIBRARIES=1 "$ikili" > dyld.log 2>&1
-          echo "son 25 yükleme:"
-          grep -c . dyld.log
-          tail -25 dyld.log
-
-          echo
-          echo "════════ 3) macOS birleşik günlüğü ════════"
-          # Sadece son bir dakika ve yalnızca ilgili iletiler.
-          log show --last 1m --info --predicate 'eventMessage CONTAINS "Telli" OR eventMessage CONTAINS "Library Validation" OR eventMessage CONTAINS "code signature" OR eventMessage CONTAINS "AMFI"' --style compact 2>/dev/null | tail -40
-
-          echo
-          echo "════════ 4) ikili ve çatı bilgisi ════════"
-          file "$ikili"
-          echo "--- bağımlı kütüphaneler (ilk 15) ---"
-          otool -L "$ikili" 2>/dev/null | head -15
-          echo "--- Info.plist anahtarları ---"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$uyg/Contents/Info.plist" 2>/dev/null
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$uyg/Contents/Info.plist" 2>/dev/null
-          echo "--- MacOS/ içeriği ---"
-          ls -l "$uyg/Contents/MacOS/"
-          echo "--- Helper uygulamaları ---"
-          ls -1 "$uyg/Contents/Frameworks/" | head -12
+          echo "════════ A) olduğu gibi ════════"
+          dene "olduğu gibi" duz.log env FZY_IZ=1 "$ikili"
 
           echo
-          echo "════════ 4b) Chromium günlüğü ile ════════"
-          # Electron normalde hiçbir şey yazdırmaz; ölümcül Chromium
-          # hataları (CHECK/DCHECK) ancak günlük açıkken stderr'e düşer.
-          # "çıktı yok" bulgusunun tek başına bir şey kanıtlamadığını bu
-          # adım gösterecek.
-          FZY_IZ=1 ELECTRON_ENABLE_LOGGING=1 ELECTRON_ENABLE_STACK_DUMPING=1 \
-            "$ikili" --enable-logging=stderr --v=1 > gunluk.log 2>&1
-          echo "çıkış: $?  satır: $(wc -l < gunluk.log | tr -d ' ')"
-          echo "--- iz satırları ---"
-          grep "^\[iz\]" gunluk.log || echo "iz satırı yok"
-          echo "--- son 25 satır ---"
-          tail -25 gunluk.log
+          echo "════════ B) ASCII veri dizini ════════"
+          # Kullanıcı verisi dizini uygulama adından türetiliyor:
+          #   ~/Library/Application Support/Özgür Telli Finans
+          # Ölüm tam olarak Chromium'un bu profili kurduğu safhada
+          # (proxy yapılandırmasından sonra, ready'den önce) oluyor.
+          rm -rf /tmp/udd && mkdir -p /tmp/udd
+          dene "ASCII veri dizini" udd.log env FZY_IZ=1 "$ikili" --user-data-dir=/tmp/udd
 
           echo
-          echo "════════ 4c) lldb yığın izi ════════"
-          # Asıl kanıt bu: SIGTRAP'ın hangi çerçevede atıldığını isimle
-          # verir. Çökme raporu yazılmadığı için başka yolu yok.
-          # -k: ÇÖKME ANINDA çalışacak komutlar. Geçen turda "-o bt all"
-          # kullanıldı ve hiç çıktı vermedi: lldb toplu kipte komutları
-          # sırayla çalıştırıyor, süreç henüz durmamış oluyordu. Yığın izi
-          # ancak çökme kancasıyla alınabiliyor.
-          # Geçen turda "tail -80" kullanıldı ve asıl çöken thread #1
-          # listenin BAŞINDA olduğu için kesilip gitti. Artık çıktı
-          # dosyaya alınıp durma noktasından İTİBAREN yazdırılıyor.
+          echo "════════ C) tek örnek kilidi olmadan ════════"
+          # requestSingleInstanceLock Chromium'un ProcessSingleton'ını
+          # kurar: userData altında bir unix soketi açar ve dinlemeye
+          # başlar. Bunu mesaj döngüsü başlamadan çağırıyoruz.
+          dene "kilitsiz" kilitsiz.log env FZY_IZ=1 FZY_KILIT=kapali "$ikili"
+
+          echo
+          echo "════════ D) Chromium günlüğü ════════"
+          dene "günlüklü" gunluk.log env FZY_IZ=1 ELECTRON_ENABLE_LOGGING=1 \
+            ELECTRON_ENABLE_STACK_DUMPING=1 "$ikili" --enable-logging=stderr --v=1
+          echo "--- son 20 satır (iz hariç) ---"
+          grep -v '^\[iz\]' gunluk.log | tail -20
+
+          echo
+          echo "════════ E) lldb yığın izi ════════"
           if command -v lldb >/dev/null 2>&1; then
-            lldb -b \
-              -k "bt" \
-              -k "register read pc" \
-              -k "image lookup --verbose --address \$pc" \
-              -k "quit" \
-              -o "run" -- "$ikili" > lldb.log 2>&1
-            echo "--- durma noktasından itibaren ---"
-            sed -n '/stop reason/,$p' lldb.log | head -45
-          else
-            echo "lldb yok"
+            lldb -b -k "bt" -k "quit" -o "run" -- "$ikili" > lldb.log 2>&1 &
+            lpid=$!
+            b=0
+            while [ "$b" -lt 60 ]; do
+              kill -0 "$lpid" 2>/dev/null || break
+              sleep 1
+              b=$((b + 1))
+            done
+            kill "$lpid" 2>/dev/null
+            wait "$lpid" 2>/dev/null
+            sed -n '/stop reason/,$p' lldb.log | head -30
           fi
 
           echo
-          echo "════════ 4e) yardımcı süreçler devre dışı ════════"
-          # GPU/eklenti yardımcıları ayrı ayrı imzalı paketler; biri
-          # başlatılamazsa tarayıcı süreci ölümcül hata verebilir.
-          # Bunları kapatıp ölüp ölmediğine bakmak suçluyu daraltır.
-          FZY_IZ=1 "$ikili" --no-sandbox --disable-gpu --disable-gpu-sandbox \
-            --disable-software-rasterizer > yardimcisiz.log 2>&1
-          echo "çıkış: $?"
-          grep "^\[iz\]" yardimcisiz.log | tail -5
-          grep -iv "^\[iz\]" yardimcisiz.log | tail -15
-
-          echo
-          echo "════════ 4d) denetim: çıplak Electron ════════"
-          # Bizim kodumuzu devre dışı bırakıp yalnız Electron'u dener.
-          # Çıplak Electron da ölüyorsa sorun platformda/koşucuda;
-          # ayakta kalıyorsa sorun kesin olarak bizim ana süreçte.
-          mkdir -p /tmp/bos
-          printf '%s\n' '{"name":"bos","version":"1.0.0","main":"ana.js"}' > /tmp/bos/package.json
-          printf '%s\n' 'const {app,BrowserWindow}=require("electron");app.whenReady().then(()=>{new BrowserWindow({show:false});setTimeout(()=>app.quit(),3000)})' > /tmp/bos/ana.js
-          # node_modules/electron/dist yok (electron-builder kendi
-          # önbelleğine indiriyor), bu yüzden önbellekteki zip açılıyor.
-          zip=$(find "$HOME/Library/Caches/electron" -name "*darwin-arm64*.zip" 2>/dev/null | head -1)
-          echo "önbellek zip: ${zip:-bulunamadı}"
-          if [ -n "$zip" ]; then
-            rm -rf /tmp/ciplak && mkdir -p /tmp/ciplak
-            unzip -q -o "$zip" -d /tmp/ciplak
-            /tmp/ciplak/Electron.app/Contents/MacOS/Electron /tmp/bos > bos.log 2>&1
-            echo "çıplak Electron çıkışı: $?"
-            tail -8 bos.log
-          fi
-
-          echo
-          echo "════════ 4f) denetim: ASCII uygulama adı ════════"
+          echo "════════ F) ASCII uygulama adı ════════"
           # Uygulama adı "Özgür Telli Finans" — Ö ve ü içeriyor. macOS
-          # dosya adlarını NFD, imza ve Info.plist ise NFC biçiminde
-          # tutabiliyor; bu uyuşmazlık yerel katmanda ölümcül olabilir.
-          # Sadece adı ASCII olan bir deneme paketi üretip çalıştırıyoruz:
-          # bu ayakta kalırsa sebep addır. (Paket yayınlanmaz.)
+          # dosya adlarını NFD, Info.plist ve imza NFC biçiminde tutabilir.
+          # Yalnızca adı değiştirilmiş bir deneme paketi üretilir; paket
+          # YAYINLANMAZ, sadece ölçüm içindir.
           npx electron-builder --mac dir \
             -c.productName="FzyDeneme" \
-            -c.directories.output=denetim > derleme-denetim.log 2>&1 \
-            && echo "deneme paketi üretildi" || { echo "deneme paketi üretilemedi"; tail -15 derleme-denetim.log; }
-          echo "--- denetim ağacı ---"
-          find denetim -maxdepth 3 2>/dev/null | head -10
-          dene=$(find denetim -maxdepth 8 -type f -path "*FzyDeneme.app/Contents/MacOS/*" 2>/dev/null | head -1)
-          echo "deneme ikilisi: ${dene:-bulunamadı}"
-          if [ -n "$dene" ]; then
-            FZY_IZ=1 "$dene" > dene.log 2>&1
-            echo "ASCII adlı paket çıkışı: $?"
-            grep "^\[iz\]" dene.log | tail -6
+            -c.directories.output=denetim > derleme-denetim.log 2>&1
+          echo "deneme paketi çıkışı: $?"
+          dene2=$(find denetim -maxdepth 8 -type f -path "*FzyDeneme.app/Contents/MacOS/*" 2>/dev/null | head -1)
+          echo "deneme ikilisi: ${dene2:-bulunamadı}"
+          if [ -n "$dene2" ]; then
+            dene "ASCII ad" ascii.log env FZY_IZ=1 "$dene2"
+          else
+            find denetim -maxdepth 4 2>/dev/null | head -12
+            tail -12 derleme-denetim.log
           fi
-          tail -12 bos.log
 
           echo
-          echo "════════ 4g) ASCII veri dizini ════════"
-          # Kullanıcı verisi dizini uygulama adından türetiliyor:
-          # ~/Library/Application Support/Özgür Telli Finans
-          # Ölüm tam olarak Chromium'un bu profili kurduğu safhada
-          # (proxy yapılandırmasından hemen sonra, ready'den önce)
-          # gerçekleşiyor. --user-data-dir ile yolu ASCII yapıp deniyoruz:
-          # ayakta kalırsa sebep yoldaki Türkçe harfler.
-          rm -rf /tmp/udd && mkdir -p /tmp/udd
-          FZY_IZ=1 "$ikili" --user-data-dir=/tmp/udd > udd.log 2>&1
-          echo "ASCII veri diziniyle çıkış: $?"
-          grep "^\[iz\]" udd.log | tail -4
-
-          echo "--- varsayılan veri dizini var mı ---"
-          ls -la "$HOME/Library/Application Support/" 2>/dev/null | grep -i telli || echo "yok"
-
-          echo
-          echo "════════ 5) çökme raporu ════════"
-          # ReportCrash gerçek Mac'te rapor üretti (günlükte "CORPSE: Parsing
-          # KCData" görüldü). .ips dosyasının gövdesi JSON; içindeki
-          # exception / termination / asi alanları çekirdeğin süreci neden
-          # öldürdüğünü açıkça yazar. Electron'un asar bütünlük hatası da
-          # buraya "Integrity check failed" olarak düşer.
+          echo "════════ G) çökme raporu ════════"
           rapor=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"*Telli*.ips 2>/dev/null | head -1)
           if [ -n "$rapor" ]; then
             echo "rapor: $rapor"
             python3 araclar/ips-oku.py "$rapor"
           else
-            echo "çökme raporu bulunamadı."
+            echo "çökme raporu yazılmamış."
           fi
 
-          echo
-          echo "════════ 6) asar bütünlük karşılaştırması ════════"
-          # Info.plist'teki beklenen özet ile app.asar başlığının gerçek
-          # özetini KARŞILAŞTIRIR. Uyuşmazsa Electron hiç JS çalıştırmadan,
-          # çıktı yazmadan ölür; aradığımız imza tam olarak bu.
-          /usr/libexec/PlistBuddy -c "Print :ElectronAsarIntegrity" "$uyg/Contents/Info.plist" 2>/dev/null || echo "Info.plist'te ElectronAsarIntegrity YOK"
-          node -e '
-            const crypto = require("crypto");
-            const yol = process.argv[1];
-            try {
-              const asar = require("@electron/asar");
-              const h = asar.getRawHeader(yol).headerString;
-              console.log("gerçek başlık sha256 =", crypto.createHash("sha256").update(h).digest("hex"));
-            } catch (e) { console.log("asar özeti hesaplanamadı:", e.message); }
-          ' "$uyg/Contents/Resources/app.asar"
-
-          # Teşhis adımı yayını ENGELLEMEZ: amacı bilgi toplamak.
-          echo "::warning::macOS uygulaması açılışta kapanıyor; yukarıdaki teşhis çıktısına bakılacak."
+          # Teşhis adımı yayını ENGELLEMEZ: amacı kanıt toplamak.
+          echo "::warning::macOS açılış teşhisi tamamlandı; çıktıya bakılacak."
           exit 0
 
       - name: Çıktıyı listele

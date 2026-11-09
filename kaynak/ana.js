@@ -43,8 +43,15 @@ let tepsi = null
 let bildirimZamanlayici = null
 let bildirimImleci = null
 
-const tekOrnek = app.requestSingleInstanceLock()
-iz(`tek örnek kilidi: ${tekOrnek}`)
+/* Teşhis anahtarı. requestSingleInstanceLock Chromium'un
+   ProcessSingleton'ını kurar: userData altında bir unix soketi açıp
+   dinlemeye başlar, hem de biz bunu mesaj döngüsü başlamadan
+   çağırıyoruz. Açılıştaki sessiz ölümün buradan gelip gelmediğini
+   ayırt edebilmek için kilidi atlamanın bir yolu olması gerekiyordu.
+   Normal çalışmada hiçbir etkisi yok. */
+const kilitIstensin = process.env.FZY_KILIT !== 'kapali'
+const tekOrnek = kilitIstensin ? app.requestSingleInstanceLock() : true
+iz(`tek örnek kilidi: ${tekOrnek} (istendi: ${kilitIstensin})`)
 
 /* İkinci kez açılırsa yeni pencere açılmaz, var olan öne getirilir. */
 if (!tekOrnek) {
