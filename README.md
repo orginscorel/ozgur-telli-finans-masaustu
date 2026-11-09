@@ -28,8 +28,15 @@ Mac'te düzgün üretilir, barındırma sunucusu ise Linux.
   ```
   git tag v2.0.1 && git push origin v2.0.1
   ```
-  İş akışı iki platformda derler ve paketleri çıktı olarak bırakır.
+  İş akışı iki platformda derler ve paketleri **sürüm (release) sayfasına**
+  koyar: `https://github.com/orginscorel/ozgur-telli-finans-masaustu/releases`
 - **Deneme derlemesi:** Actions sekmesi → "Paketleri üret" → "Run workflow".
+  Etiket olmadığı için paket yüklenmez, yalnızca derlemenin sağlamlığı denenir.
+
+> Paketler bilinçli olarak Actions "artifact" deposuna değil sürüm sayfasına
+> yüklenir: hesabın artifact kotası dolu ("Artifact storage quota has been
+> hit") ve derleme başarılı olsa bile yükleme adımı tökezliyordu. Release
+> varlıkları o kotaya girmez.
 
 Yerelde (node kurulu bir makinede):
 ```

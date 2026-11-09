@@ -1,18 +1,28 @@
-# Windows ve macOS paketlerini üretir.
+# Windows ve macOS paketlerini üretir ve sürüm sayfasına koyar.
 #
 # Neden GitHub üzerinde derleniyor: macOS paketi ancak gerçek bir Mac'te
 # düzgün üretilebilir (ve imza alınacaksa yalnızca orada imzalanabilir).
 # Barındırma sunucusu Linux, orada üretilen macOS paketi eksik kalıyor.
-# Burada her platform kendi işletim sisteminde derlenir.
+#
+# Paketler neden "artifact" değil de RELEASE'e yükleniyor: hesabın çıktı
+# depolama kotası dolu ("Artifact storage quota has been hit") ve kota 6-12
+# saatte bir yeniden hesaplanıyor; derleme başarılı olup yükleme adımı
+# tökezliyordu. Release varlıkları o kotaya girmez, üstelik sürümler
+# tarayıcıdan indirilebilir bir sayfada toplanır.
 
 name: Paketleri üret
 
 on:
-  # Sürüm etiketi atıldığında: git tag v2.0.0 && git push --tags
+  # Sürüm etiketi atıldığında: git tag v2.0.1 && git push origin v2.0.1
   push:
     tags: ['v*']
   # Elle çalıştırmak için (Actions sekmesinden "Run workflow").
+  # Etiket olmadığı için paket yüklenmez, yalnızca derlemenin sağlamlığı denenir.
   workflow_dispatch:
+
+# Release oluşturup varlık yüklemek için gereken tek izin.
+permissions:
+  contents: write
 
 jobs:
   derle:
@@ -55,32 +65,50 @@ jobs:
         shell: bash
         run: ls -lh dagitim
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: fzy-${{ matrix.ad }}
-          # latest.yml de alınır: güncelleme beslemesi o dosyayı okuyor,
-          # pakete eşlik etmezse otomatik güncelleme çalışmaz.
-          path: |
-            dagitim/*.exe
-            dagitim/*.dmg
-            dagitim/*.yml
-            dagitim/*.blockmap
-          if-no-files-found: error
-          retention-days: 30
+      # Yalnızca etiketli derlemede yüklenir. Elle tetiklenen koşularda
+      # etiket yoktur ve release'e yüklenecek bir sürüm de yoktur.
+      - name: Sürüm sayfasına yükle
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ETIKET: ${{ github.ref_name }}
+        run: |
+          # Release'i iki iş de oluşturmaya çalışabilir; ikincisi "zaten var"
+          # diyeceği için hata yutulur. --clobber yeniden denemelerde
+          # "varlık zaten var" hatasını engeller.
+          gh release create "$ETIKET" \
+            --title "Özgür Telli Finans $ETIKET" \
+            --notes "Windows kurulumu ve macOS DMG paketleri aşağıdadır. latest.yml otomatik güncelleme beslemesi içindir." \
+            || echo "Release zaten var, yüklemeye geçiliyor."
+
+          # latest.yml ve blockmap de yüklenir: otomatik güncelleme o
+          # dosyaları okur, pakete eşlik etmezlerse güncelleme çalışmaz.
+          shopt -s nullglob
+          dosyalar=(dagitim/*.exe dagitim/*.dmg dagitim/*.yml dagitim/*.blockmap)
+
+          if [ ${#dosyalar[@]} -eq 0 ]; then
+            echo "Yüklenecek dosya bulunamadı." >&2
+            exit 1
+          fi
+
+          printf 'yükleniyor: %s\n' "${dosyalar[@]}"
+          gh release upload "$ETIKET" "${dosyalar[@]}" --clobber
 
   yayinla:
-    # Paketleri siteye kopyalar. Gerekli gizli anahtarlar tanımlı değilse
-    # sessizce atlanır: anahtar yoksa iş başarısız görünmesin, paketler
-    # yine Actions çıktısından indirilebilir.
+    # Paketleri siteye kopyalar: otomatik güncelleme beslemesi orada duruyor.
+    # Gerekli gizli anahtarlar tanımlı değilse sessizce atlanır — anahtar
+    # yoksa iş başarısız görünmesin, paketler sürüm sayfasından indirilebilir.
     needs: derle
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     name: siteye yükle
 
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: paketler
-          merge-multiple: true
+      - name: Sürüm varlıklarını indir
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ github.ref_name }}" --dir paketler --repo "${{ github.repository }}"
 
       - name: Siteye kopyala
         shell: bash
@@ -89,19 +117,19 @@ jobs:
           KULLANICI: ${{ secrets.SUNUCU_KULLANICI }}
           ANAHTAR: ${{ secrets.SUNUCU_SSH_ANAHTARI }}
           HEDEF: ${{ secrets.SUNUCU_HEDEF_DIZIN }}
+          PORT: ${{ secrets.SUNUCU_PORT }}
         run: |
           if [ -z "$ANAHTAR" ] || [ -z "$SUNUCU" ]; then
             echo "SSH anahtarı tanımlı değil; yükleme atlandı."
-            echo "Paketleri Actions çıktısından indirebilirsiniz."
+            echo "Paketler sürüm sayfasından indirilebilir."
             exit 0
           fi
 
           mkdir -p ~/.ssh
           printf '%s\n' "$ANAHTAR" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$SUNUCU" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p "${PORT:-22}" -H "$SUNUCU" >> ~/.ssh/known_hosts 2>/dev/null
 
           ls -lh paketler
-          scp -i ~/.ssh/id_ed25519 -P "${{ secrets.SUNUCU_PORT || 22 }}" \
-              paketler/* "$KULLANICI@$SUNUCU:$HEDEF/"
+          scp -i ~/.ssh/id_ed25519 -P "${PORT:-22}" paketler/* "$KULLANICI@$SUNUCU:$HEDEF/"
           echo "Yüklendi: $HEDEF"
