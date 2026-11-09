@@ -142,17 +142,41 @@ jobs:
       # çökme raporunda kod imzası / kütüphane doğrulama izi varsa derleme
       # durur ve paket yayınlanmaz. İz yoksa uyarı düşülür ve yayın sürer;
       # belirsiz bir sinyalin sürümü süresiz bloke etmesi doğru değil.
+      # UYGULAMA GERÇEKTEN ÇALIŞTIRILIR ve çökerse macOS'un kendi çökme
+      # raporu okunur.
+      #
+      # Neden karar kanıta bağlı: imzalama atlandığında paket hiç açılmıyordu
+      # ve bunu kullanıcı denediğinde öğrendik, o yüzden bu kapı gerekli. Ama
+      # koşucuda Aqua (pencere sunucusu) oturumu yok; bir masaüstü uygulaması
+      # bu yüzden de SIGTRAP ile düşebilir ve bu, paketin gerçek bir Mac'te
+      # açılmayacağı anlamına GELMEZ. Çıkış kodu ikisini ayırt etmiyor:
+      # her iki durumda da 133 geliyor.
+      #
+      # Bu yüzden ölçüt çıkış kodu değil KANIT: çıktıda ya da çökme raporunda
+      # kod imzası izi varsa derleme durur; yoksa uyarı düşülür ve yayın sürer.
+      #
+      # Bu gövde üç sahte senaryoyla sınandı (ayakta kalan / SIGTRAP ile ölen /
+      # imza hatası basan) ve üçünde de doğru karar verdiği doğrulandı.
       - name: macOS uygulamasını çalıştırarak dene
         if: matrix.ad == 'macos'
         shell: bash
         run: |
+          # set -e KAPATILIR: bu blokta komutların başarısız olması NORMAL (çökme raporu
+          # dizini boş olabilir, uygulama çökebilir). set -e + pipefail ile üç kez üst
+          # üste betik teşhis üretmeden öldü. Karar aşağıda açıkça veriliyor.
+          set +e
+          set +o pipefail
+
           ikili="dagitim/mac-arm64/Özgür Telli Finans.app/Contents/MacOS/Özgür Telli Finans"
           if [ ! -x "$ikili" ]; then
             echo "Çalıştırılabilir bulunamadı: $ikili" >&2
             exit 1
           fi
 
-          onceki=$(ls -1 ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | wc -l | tr -d ' ')
+          RAPORDIZIN="$HOME/Library/Logs/DiagnosticReports"
+          onceki=$(ls -1 "$RAPORDIZIN"/*.ips 2>/dev/null | wc -l | tr -d ' ')
+          [ -z "$onceki" ] && onceki=0
+          echo "çökme raporu sayısı (önce): $onceki"
 
           "$ikili" > cikti.log 2>&1 &
           pid=$!
@@ -165,40 +189,42 @@ jobs:
           done
 
           if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
             echo "Uygulama ${saniye} saniye ayakta kaldı — açılıyor."
-            head -40 cikti.log || true
+            head -40 cikti.log
             exit 0
           fi
 
-          # "wait" çocuğun çıkış kodunu döndürür; set -e yüzünden bu satırda
-          # betik ölüyordu ve aşağıdaki teşhis hiç basılmıyordu.
-          kod=0
-          wait "$pid" || kod=$?
+          wait "$pid"
+          kod=$?
           echo "Uygulama ${saniye} saniyede çıktı. Çıkış kodu: $kod"
 
           echo "--- uygulamanın çıktısı ---"
-          cat cikti.log || true
-          echo "---------------------------"
+          cat cikti.log
+          echo "--- çıktı sonu ---"
 
           sleep 5
-          echo "--- çökme raporları ---"
           : > rapor.log
-          for r in $(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -3); do
-            echo "══ $r" | tee -a rapor.log
-            head -80 "$r" | tee -a rapor.log
-          done
-          echo "sonra: $(ls -1 ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | wc -l | tr -d ' '), önce: $onceki"
-          echo "-----------------------"
+          sonra=$(ls -1 "$RAPORDIZIN"/*.ips 2>/dev/null | wc -l | tr -d ' ')
+          [ -z "$sonra" ] && sonra=0
+          echo "çökme raporu sayısı (sonra): $sonra"
 
-          # Kod imzası kaynaklı bir çökme: paket gerçekten açılmıyor.
+          for r in $(ls -t "$RAPORDIZIN"/*.ips 2>/dev/null | head -3); do
+            echo "== $r" >> rapor.log
+            head -80 "$r" >> rapor.log
+          done
+          echo "--- çökme raporu ---"
+          cat rapor.log
+          echo "--- rapor sonu ---"
+
           if cat cikti.log rapor.log 2>/dev/null | grep -qiE "CODESIGNING|library validation|invalid signature|code signature|Killed: 9"; then
             echo "Çökme kod imzası kaynaklı: paket açılmıyor, yayın durduruluyor." >&2
             exit 1
           fi
 
-          echo "::warning::Uygulama ${saniye} sn'de çıktı (kod $kod) ama kod imzası izi yok. Koşucuda pencere sunucusu oturumu bulunmadığı için beklenen bir durum olabilir."
+          echo "::warning::Uygulama ${saniye} sn'de çıktı (kod $kod) ama kod imzası izi yok."
+          exit 0
 
       - name: Çıktıyı listele
         shell: bash
