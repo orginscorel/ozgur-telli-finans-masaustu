@@ -99,6 +99,50 @@ jobs:
             exit 1
           fi
 
+      # UYGULAMA GERÇEKTEN ÇALIŞTIRILIR.
+      #
+      # İki kez üst üste "başarılı" derleme hiç açılmayan paket üretti: önce
+      # imzalama atlandığı için, sonra Hardened Runtime + ad-hoc imza
+      # birleşimi yüzünden. İkisini de kullanıcı denediğinde öğrendik. İmza
+      # doğrulaması bunların yalnızca birincisini yakalıyor; açılıp
+      # açılmadığını ancak çalıştırmak gösterir.
+      #
+      # Koşucu arm64 olduğu için yalnızca arm64 paketi denenebilir; x64 paketi
+      # Rosetta gerektirir ve koşucuda kurulu olmayabilir.
+      - name: macOS uygulamasını çalıştırarak dene
+        if: matrix.ad == 'macos'
+        shell: bash
+        run: |
+          ikili="dagitim/mac-arm64/Özgür Telli Finans.app/Contents/MacOS/Özgür Telli Finans"
+          if [ ! -x "$ikili" ]; then
+            echo "Çalıştırılabilir bulunamadı: $ikili" >&2
+            exit 1
+          fi
+
+          set +e
+          cikti=$(timeout 25 "$ikili" 2>&1)
+          kod=$?
+          set -e
+
+          echo "çıkış kodu: $kod"
+          echo "--- çıktı ---"
+          printf '%s\n' "$cikti" | head -40
+          echo "-------------"
+
+          # İmza/yükleyici hatası varsa paket açılmıyor demektir.
+          if printf '%s' "$cikti" | grep -qiE "code signature|library validation|dyld|Abort trap|cannot be opened|Killed: 9"; then
+            echo "Uygulama imza/kütüphane hatasıyla açılmadı." >&2
+            exit 1
+          fi
+
+          # 124 = zaman aşımı, yani uygulama ayakta kaldı: istenen sonuç bu.
+          if [ "$kod" -ne 124 ] && [ "$kod" -ne 0 ]; then
+            echo "Uygulama beklenmeyen bir kodla çıktı: $kod" >&2
+            exit 1
+          fi
+
+          echo "Uygulama açıldı ve ayakta kaldı."
+
       - name: Çıktıyı listele
         shell: bash
         run: ls -lh dagitim
