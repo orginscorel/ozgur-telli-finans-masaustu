@@ -27,6 +27,23 @@ ipcRenderer.on('gecis', (_olay, durum) => {
     if (cubuk) cubuk.dataset.durum = durum
 })
 
+/*
+ * Pencereye dosya sürüklemek engellenir.
+ *
+ * Tarayıcı davranışı: bırakılan dosya o sekmede AÇILIR. Uygulamada bunun
+ * sonucu, kullanıcının çalıştığı ekranın yerini rastgele bir PDF'in ya da
+ * resmin almasıydı — masaüstü uygulaması gibi davranmıyordu. Dosya yükleme
+ * alanları bundan etkilenmez: oradaki bırakma olayı sayfanın kendi
+ * işleyicisine ulaşmadan önce durdurulmaz, yalnızca pencere düzeyindeki
+ * varsayılan "dosyayı aç" davranışı iptal edilir.
+ */
+for (const olay of ['dragover', 'drop']) {
+    window.addEventListener(olay, (e) => {
+        if (e.target.closest('input[type="file"], [data-dosya-birak]')) return
+        e.preventDefault()
+    })
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     document.documentElement.classList.add('masaustu-uygulama', `masaustu-${process.platform}`)
 

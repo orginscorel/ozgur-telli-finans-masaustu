@@ -55,11 +55,26 @@ jobs:
       - name: Bağımlılıklar
         run: npm install
 
+      # Yeniden deneme bilinçli: electron-builder derleme sırasında Electron
+      # ikililerini ve yardımcı araçları ağdan indiriyor ve bu indirmelerden
+      # biri HTTP 500 dönünce derleme tümden düşüyor (macOS'ta bir kez oldu,
+      # aynı yapılandırma önceki koşuda sorunsuzdu). Geçici bir ağ hatasının
+      # sürüm yayınını engellemesi için sebep yok.
       - name: Paketle
-        run: npx electron-builder ${{ matrix.komut }} --publish never
+        shell: bash
         env:
-          # Electron'un GitHub'dan ikili indirirken kotaya takılmaması için.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for deneme in 1 2 3; do
+            echo "── paketleme denemesi $deneme"
+            if npx electron-builder ${{ matrix.komut }} --publish never; then
+              exit 0
+            fi
+            echo "deneme $deneme başarısız."
+            [ "$deneme" -lt 3 ] && sleep 30
+          done
+          echo "Üç deneme de başarısız oldu." >&2
+          exit 1
 
       - name: Çıktıyı listele
         shell: bash
@@ -84,8 +99,14 @@ jobs:
 
           # latest.yml ve blockmap de yüklenir: otomatik güncelleme o
           # dosyaları okur, pakete eşlik etmezlerse güncelleme çalışmaz.
+          # builder-debug.yml dışarıda bırakılır: electron-builder'ın hata
+          # ayıklama dökümü, dağıtımda işi yok ve sunucuya da kopyalanıyordu.
           shopt -s nullglob
-          dosyalar=(dagitim/*.exe dagitim/*.dmg dagitim/*.yml dagitim/*.blockmap)
+          dosyalar=()
+          for d in dagitim/*.exe dagitim/*.dmg dagitim/*.yml dagitim/*.blockmap; do
+            [ "$(basename "$d")" = "builder-debug.yml" ] && continue
+            dosyalar+=("$d")
+          done
 
           if [ ${#dosyalar[@]} -eq 0 ]; then
             echo "Yüklenecek dosya bulunamadı." >&2
@@ -100,7 +121,11 @@ jobs:
     # Gerekli gizli anahtarlar tanımlı değilse sessizce atlanır — anahtar
     # yoksa iş başarısız görünmesin, paketler sürüm sayfasından indirilebilir.
     needs: derle
-    if: github.ref_type == 'tag'
+    # !cancelled() bilinçli: "needs" varsayılan olarak TÜM matris
+    # bacaklarının başarılı olmasını bekliyor. macOS derlemesi geçici bir ağ
+    # hatasıyla düştüğünde başarılı Windows paketi de siteye hiç gitmedi.
+    # Eldeki paketler yayınlanmalı; eksik olan sonraki koşuda tamamlanır.
+    if: ${{ !cancelled() && github.ref_type == 'tag' }}
     runs-on: ubuntu-latest
     name: siteye yükle
 

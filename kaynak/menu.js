@@ -36,9 +36,26 @@ function menuKur({ pencere, adres, guncellemeyiDenetle }) {
         pencere.loadURL(new URL(yol, adres).toString())
     }
 
-    const gezinti = SAYFALAR.map((s) => s.tur === 'separator'
-        ? { type: 'separator' }
-        : { label: s.etiket, accelerator: s.kisayol, click: () => git(s.yol) })
+    const tarihce = pencere?.webContents?.navigationHistory
+
+    const gezinti = [
+        /* Geri/İleri uygulamada da gerekiyor: sayfalar arasında dolaşan
+           kullanıcı bir adım geri dönmek istediğinde tarayıcı düğmesi yok. */
+        {
+            label: 'Geri',
+            accelerator: process.platform === 'darwin' ? 'Cmd+Left' : 'Alt+Left',
+            click: () => tarihce?.canGoBack() && tarihce.goBack(),
+        },
+        {
+            label: 'İleri',
+            accelerator: process.platform === 'darwin' ? 'Cmd+Right' : 'Alt+Right',
+            click: () => tarihce?.canGoForward() && tarihce.goForward(),
+        },
+        { type: 'separator' },
+        ...SAYFALAR.map((s) => s.tur === 'separator'
+            ? { type: 'separator' }
+            : { label: s.etiket, accelerator: s.kisayol, click: () => git(s.yol) }),
+    ]
 
     const sablon = [
         /* macOS'ta ilk menü uygulama adını taşır ve "Hakkında / Çıkış" oraya

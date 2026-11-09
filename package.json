@@ -1,7 +1,7 @@
 {
   "name": "ozgur-telli-finans",
   "productName": "Özgür Telli Finans",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Özgür Telli Fizyoterapi — finans ve klinik yönetimi masaüstü uygulaması",
   "main": "kaynak/ana.js",
   "private": true,

@@ -11,6 +11,10 @@ const path = require('node:path')
 const { ADRES, IZINLI_KOKENLER, oku, yaz } = require('./ayarlar')
 const { menuKur } = require('./menu')
 const { guncellemeyiBaslat, simdiDenetle } = require('./guncelleme')
+const { baglamMenusuKur } = require('./baglammenu')
+
+/* Derin bağlantı şeması: ozgurtelli://danisanlar/5 uygulamada açılır. */
+const SEMA = 'ozgurtelli'
 
 let pencere = null
 let acilis = null
@@ -24,12 +28,31 @@ const tekOrnek = app.requestSingleInstanceLock()
 if (!tekOrnek) {
     app.quit()
 } else {
-    app.on('second-instance', () => {
+    app.on('second-instance', (_olay, argv) => {
         if (!pencere) return
         if (pencere.isMinimized()) pencere.restore()
+        pencere.show()
         pencere.focus()
+
+        /* Görev çubuğu kısayolu ya da derin bağlantı ikinci bir kopya
+           başlatmaya çalışır; argümanı var olan pencerede açıyoruz. */
+        const yol = argumandanYol(argv)
+        if (yol) yolaGit(yol)
     })
 }
+
+/*
+ * Derin bağlantı şeması işletim sistemine bildirilir. Paketlenmemiş halde
+ * (geliştirme) çalıştırılabilir yolu Electron'un kendisini gösterdiği için
+ * kayıt anlamlı olmaz, bu yüzden yalnızca pakette yapılır.
+ */
+if (app.isPackaged) app.setAsDefaultProtocolClient(SEMA)
+
+/* macOS derin bağlantıyı argümanla değil bu olayla veriyor. */
+app.on('open-url', (olay, url) => {
+    olay.preventDefault()
+    yolaGit(url)
+})
 
 function acilisPenceresi() {
     acilis = new BrowserWindow({
@@ -89,6 +112,16 @@ function anaPencere() {
 
     pencere.loadURL(ADRES)
 
+    baglamMenusuKur(pencere, ADRES)
+
+    /* --- Yakınlaştırma hatırlanır ---
+       Kullanıcı yazıyı bir kez büyütüyor ve her açılışta yeniden büyütmek
+       zorunda kalmamalı. Tarayıcı bunu site başına kendi tutar; uygulamada
+       tutacak bir yer olmadığı için tercihlere yazılır. */
+    pencere.webContents.on('zoom-changed', () => {
+        yaz({ yakinlastirma: pencere.webContents.getZoomLevel() })
+    })
+
     /* --- Gezinme: dış bağlantılar varsayılan tarayıcıya --- */
     const disaridaAc = (url) => {
         if (!IZINLI_KOKENLER.some((k) => url.startsWith(k))) {
@@ -132,6 +165,9 @@ function anaPencere() {
     /* --- İlk yükleme bitince açılışı kapat --- */
     pencere.webContents.once('did-finish-load', () => {
         asama('Hazır')
+
+        const z = oku().yakinlastirma
+        if (typeof z === 'number') pencere.webContents.setZoomLevel(z)
 
         setTimeout(() => {
             if (acilis && !acilis.isDestroyed()) acilis.close()
@@ -221,6 +257,81 @@ function bildirimDongusu() {
     bildirimleriCek()
 }
 
+/* ------------------------------------------------------- derin bağlantı / hızlı görev */
+
+/*
+ * Görev çubuğu ve Dock'tan doğrudan iş başlatma.
+ *
+ * Masaüstü uygulamalarının beklenen davranışı: simgeye sağ tıklayınca sık
+ * yapılan işler çıkar. Yollar artisan route:list çıktısından alındı.
+ */
+const HIZLI_GOREVLER = [
+    { etiket: 'Yeni gelir', yol: '/gelirler/yeni' },
+    { etiket: 'Yeni gider', yol: '/giderler/yeni' },
+    { etiket: 'Yeni danışan', yol: '/danisanlar/yeni' },
+    { etiket: 'Yeni randevu', yol: '/randevular/yeni' },
+]
+
+/**
+ * Verilen yolu uygulamada açar.
+ *
+ * Gelen değer DIŞARIDAN geliyor (derin bağlantı, komut satırı argümanı), bu
+ * yüzden köken denetlenir: başka bir adrese yönlendiren bir bağlantı
+ * uygulamanın penceresinde yabancı bir sayfa açabilirdi.
+ */
+function yolaGit(ham) {
+    if (!pencere || pencere.isDestroyed() || !ham) return
+
+    let yol = String(ham)
+    if (yol.startsWith(`${SEMA}://`)) yol = '/' + yol.slice(SEMA.length + 3)
+
+    let hedef
+
+    try {
+        hedef = new URL(yol, ADRES)
+    } catch {
+        return
+    }
+
+    if (hedef.origin !== new URL(ADRES).origin) return
+
+    if (pencere.isMinimized()) pencere.restore()
+    pencere.show()
+    pencere.focus()
+    pencere.loadURL(hedef.toString())
+}
+
+/** Komut satırında derin bağlantı ya da --sayfa= var mı. */
+function argumandanYol(argv) {
+    const sema = argv.find((a) => a.startsWith(`${SEMA}://`))
+    if (sema) return sema
+
+    const bayrak = argv.find((a) => a.startsWith('--sayfa='))
+
+    return bayrak ? bayrak.slice('--sayfa='.length) : null
+}
+
+function hizliGorevleriKur() {
+    if (process.platform === 'win32') {
+        /* Görev çubuğu listesi uygulamayı YENİDEN ÇALIŞTIRIR; tek örnek kilidi
+           sayesinde ikinci kopya açılmaz, argüman var olan pencereye düşer. */
+        app.setUserTasks(HIZLI_GOREVLER.map((g) => ({
+            program: process.execPath,
+            arguments: `--sayfa=${g.yol}`,
+            title: g.etiket,
+            description: g.etiket,
+            iconPath: process.execPath,
+            iconIndex: 0,
+        })))
+    }
+
+    if (process.platform === 'darwin') {
+        app.dock?.setMenu(Menu.buildFromTemplate(
+            HIZLI_GOREVLER.map((g) => ({ label: g.etiket, click: () => yolaGit(g.yol) }))
+        ))
+    }
+}
+
 /* ------------------------------------------------------------------ tepsi */
 
 function tepsiKur() {
@@ -231,6 +342,9 @@ function tepsiKur() {
     tepsi.setToolTip('Özgür Telli Finans')
     tepsi.setContextMenu(Menu.buildFromTemplate([
         { label: 'Pencereyi göster', click: () => { pencere?.show(); pencere?.focus() } },
+        { type: 'separator' },
+        ...HIZLI_GOREVLER.map((g) => ({ label: g.etiket, click: () => yolaGit(g.yol) })),
+        { type: 'separator' },
         { label: 'Bildirimleri şimdi denetle', click: () => bildirimleriCek() },
         { label: 'Güncellemeleri denetle…', click: () => simdiDenetle(pencere) },
         { type: 'separator' },
@@ -266,8 +380,14 @@ app.whenReady().then(() => {
     anaPencere()
     menuKur({ pencere, adres: ADRES, guncellemeyiDenetle: () => simdiDenetle(pencere) })
     tepsiKur()
+    hizliGorevleriKur()
     bildirimDongusu()
     guncellemeyiBaslat(pencere)
+
+    /* Uygulama bir derin bağlantıyla açıldıysa ilk yükleme bitince oraya
+       gidilir; daha erken çağırmak yüklenmekte olan sayfayı yarıda kesiyordu. */
+    const acilisYolu = argumandanYol(process.argv)
+    if (acilisYolu) pencere.webContents.once('did-finish-load', () => yolaGit(acilisYolu))
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) anaPencere()
