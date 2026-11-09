@@ -302,7 +302,9 @@ jobs:
             -c.productName="FzyDeneme" \
             -c.directories.output=denetim > derleme-denetim.log 2>&1 \
             && echo "deneme paketi üretildi" || { echo "deneme paketi üretilemedi"; tail -15 derleme-denetim.log; }
-          dene=$(find denetim -maxdepth 4 -path "*FzyDeneme.app/Contents/MacOS/FzyDeneme" 2>/dev/null | head -1)
+          echo "--- denetim ağacı ---"
+          find denetim -maxdepth 3 2>/dev/null | head -10
+          dene=$(find denetim -maxdepth 8 -type f -path "*FzyDeneme.app/Contents/MacOS/*" 2>/dev/null | head -1)
           echo "deneme ikilisi: ${dene:-bulunamadı}"
           if [ -n "$dene" ]; then
             FZY_IZ=1 "$dene" > dene.log 2>&1
@@ -310,6 +312,22 @@ jobs:
             grep "^\[iz\]" dene.log | tail -6
           fi
           tail -12 bos.log
+
+          echo
+          echo "════════ 4g) ASCII veri dizini ════════"
+          # Kullanıcı verisi dizini uygulama adından türetiliyor:
+          # ~/Library/Application Support/Özgür Telli Finans
+          # Ölüm tam olarak Chromium'un bu profili kurduğu safhada
+          # (proxy yapılandırmasından hemen sonra, ready'den önce)
+          # gerçekleşiyor. --user-data-dir ile yolu ASCII yapıp deniyoruz:
+          # ayakta kalırsa sebep yoldaki Türkçe harfler.
+          rm -rf /tmp/udd && mkdir -p /tmp/udd
+          FZY_IZ=1 "$ikili" --user-data-dir=/tmp/udd > udd.log 2>&1
+          echo "ASCII veri diziniyle çıkış: $?"
+          grep "^\[iz\]" udd.log | tail -4
+
+          echo "--- varsayılan veri dizini var mı ---"
+          ls -la "$HOME/Library/Application Support/" 2>/dev/null | grep -i telli || echo "yok"
 
           echo
           echo "════════ 5) çökme raporu ════════"
