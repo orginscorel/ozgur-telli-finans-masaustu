@@ -6,12 +6,33 @@
  * olan kısım kabuk: çerçevesiz pencere, animasyonlu açılış, gezinme göstergesi,
  * işletim sistemi bildirimleri, tepsi simgesi ve çevrimdışı karşılama.
  */
+/* Açılış izi.
+ *
+ * macOS'ta uygulama açılışta sessizce ölüyordu: çökme raporu yazılmıyor,
+ * hata metni basılmıyor ve Electron normalde hiçbir şey yazdırmadığı için
+ * "çıktı yok" bulgusu hiçbir şeyi daraltmıyordu. Hangi çağrının öldürdüğünü
+ * görebilmenin tek yolu aşama aşama iz bırakmaktı. FZY_IZ=1 verilmediğinde
+ * tamamen sessizdir, bu yüzden üretimde de kalabilir.
+ */
+const izAcik = process.env.FZY_IZ === '1'
+
+function iz(asama) {
+    if (izAcik) process.stderr.write(`[iz] ${asama}\n`)
+}
+
+iz('başladı')
+
 const { app, BrowserWindow, shell, Notification, Tray, Menu, ipcMain, nativeImage, dialog } = require('electron')
+iz('electron yüklendi')
 const path = require('node:path')
 const { ADRES, IZINLI_KOKENLER, oku, yaz } = require('./ayarlar')
+iz('ayarlar yüklendi')
 const { menuKur } = require('./menu')
+iz('menü yüklendi')
 const { guncellemeyiBaslat, simdiDenetle } = require('./guncelleme')
+iz('güncelleme yüklendi')
 const { baglamMenusuKur } = require('./baglammenu')
+iz('bağlam menüsü yüklendi')
 
 /* Derin bağlantı şeması: ozgurtelli://danisanlar/5 uygulamada açılır. */
 const SEMA = 'ozgurtelli'
@@ -23,6 +44,7 @@ let bildirimZamanlayici = null
 let bildirimImleci = null
 
 const tekOrnek = app.requestSingleInstanceLock()
+iz(`tek örnek kilidi: ${tekOrnek}`)
 
 /* İkinci kez açılırsa yeni pencere açılmaz, var olan öne getirilir. */
 if (!tekOrnek) {
@@ -374,15 +396,23 @@ ipcMain.handle('disarida-ac', (_olay, url) => {
 /* ------------------------------------------------------------------ yaşam döngüsü */
 
 app.whenReady().then(() => {
+    iz('app hazır')
     acilisPenceresi()
+    iz('açılış penceresi kuruldu')
     asama('Sunucuya bağlanılıyor…')
 
     anaPencere()
+    iz('ana pencere kuruldu')
     menuKur({ pencere, adres: ADRES, guncellemeyiDenetle: () => simdiDenetle(pencere) })
+    iz('menü kuruldu')
     tepsiKur()
+    iz('tepsi kuruldu')
     hizliGorevleriKur()
+    iz('hızlı görevler kuruldu')
     bildirimDongusu()
+    iz('bildirim döngüsü kuruldu')
     guncellemeyiBaslat(pencere)
+    iz('güncelleme başlatıldı')
 
     /* Uygulama bir derin bağlantıyla açıldıysa ilk yükleme bitince oraya
        gidilir; daha erken çağırmak yüklenmekte olan sayfayı yarıda kesiyordu. */
@@ -393,6 +423,12 @@ app.whenReady().then(() => {
         if (BrowserWindow.getAllWindows().length === 0) anaPencere()
         else pencere?.show()
     })
+
+    iz('açılış tamamlandı')
+}).catch((hata) => {
+    /* Sessiz ölümün bir JS hatasından gelip gelmediğini ayırt etmek için:
+       yerel bir çökme buraya düşmez, JS hatası düşer. */
+    iz(`AÇILIŞ HATASI: ${hata && hata.stack ? hata.stack : hata}`)
 })
 
 app.on('window-all-closed', () => {

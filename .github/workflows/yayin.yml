@@ -184,7 +184,7 @@ jobs:
           ikili="$uyg/Contents/MacOS/Özgür Telli Finans"
 
           echo "════════ 1) düz çalıştırma ════════"
-          "$ikili" > duz.log 2>&1 &
+          FZY_IZ=1 "$ikili" > duz.log 2>&1 &
           pid=$!
           sleep 8
           kill -0 "$pid" 2>/dev/null && { ayakta=1; kill "$pid" 2>/dev/null; } || ayakta=0
@@ -228,10 +228,13 @@ jobs:
           # hataları (CHECK/DCHECK) ancak günlük açıkken stderr'e düşer.
           # "çıktı yok" bulgusunun tek başına bir şey kanıtlamadığını bu
           # adım gösterecek.
-          ELECTRON_ENABLE_LOGGING=1 ELECTRON_ENABLE_STACK_DUMPING=1 \
+          FZY_IZ=1 ELECTRON_ENABLE_LOGGING=1 ELECTRON_ENABLE_STACK_DUMPING=1 \
             "$ikili" --enable-logging=stderr --v=1 > gunluk.log 2>&1
           echo "çıkış: $?  satır: $(wc -l < gunluk.log | tr -d ' ')"
-          tail -40 gunluk.log
+          echo "--- iz satırları ---"
+          grep "^\[iz\]" gunluk.log || echo "iz satırı yok"
+          echo "--- son 25 satır ---"
+          tail -25 gunluk.log
 
           echo
           echo "════════ 4c) lldb yığın izi ════════"
@@ -251,8 +254,14 @@ jobs:
           mkdir -p /tmp/bos
           printf '%s\n' '{"name":"bos","version":"1.0.0","main":"ana.js"}' > /tmp/bos/package.json
           printf '%s\n' 'const {app,BrowserWindow}=require("electron");app.whenReady().then(()=>{new BrowserWindow({show:false});setTimeout(()=>app.quit(),3000)})' > /tmp/bos/ana.js
-          node_modules/electron/dist/Electron.app/Contents/MacOS/Electron /tmp/bos > bos.log 2>&1
-          echo "çıplak Electron çıkışı: $?"
+          cips=$(find node_modules/electron -maxdepth 5 -name Electron -type f 2>/dev/null | head -1)
+          echo "çıplak Electron: ${cips:-bulunamadı}"
+          if [ -n "$cips" ]; then
+            "$cips" /tmp/bos > bos.log 2>&1
+            echo "çıplak Electron çıkışı: $?"
+          else
+            ls -1 node_modules/electron 2>/dev/null | head
+          fi
           tail -12 bos.log
 
           echo
