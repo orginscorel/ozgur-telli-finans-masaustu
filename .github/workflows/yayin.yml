@@ -259,7 +259,7 @@ jobs:
           # "varlık zaten var" hatasını engeller.
           gh release create "$ETIKET" \
             --title "Özgür Telli Finans $ETIKET" \
-            --notes "Windows kurulumu ve macOS DMG paketleri aşağıdadır. latest.yml otomatik güncelleme beslemesi içindir." \
+            --notes "Windows kurulumu, macOS DMG (ilk kurulum) ve macOS ZIP (uygulama içi güncelleme) paketleri aşağıdadır. latest.yml ve latest-mac.yml güncelleme beslemeleridir." \
             || echo "Release zaten var, yüklemeye geçiliyor."
 
           # latest.yml ve blockmap de yüklenir: otomatik güncelleme o
@@ -268,7 +268,12 @@ jobs:
           # ayıklama dökümü, dağıtımda işi yok ve sunucuya da kopyalanıyordu.
           shopt -s nullglob
           dosyalar=()
-          for d in dagitim/*.exe dagitim/*.dmg dagitim/*.yml dagitim/*.blockmap; do
+          # *.zip ŞART: macOS uygulama içi güncelleme paketi o. DMG'yi
+          # uygulama içinde açmak hdiutil ile bağlama gerektiriyor; ZIP
+          # ditto ile tek adımda açılıyor. Listeye eklenmediği için
+          # 2.0.6'nın ilk derlemesinde ZIP'ler sürüm sayfasına çıkmadı ve
+          # güncelleme beslemesi işaret ettiği dosyayı bulamayacaktı.
+          for d in dagitim/*.exe dagitim/*.dmg dagitim/*.zip dagitim/*.yml dagitim/*.blockmap; do
             [ "$(basename "$d")" = "builder-debug.yml" ] && continue
             dosyalar+=("$d")
           done
