@@ -5,15 +5,31 @@
     <title>Özgür Telli Finans</title>
     <style>
         /*
-            Açılış ekranı. Tek dosya, dış istek yok: ağ beklenmeden anında çizilmeli —
-            açılışın "hızlı" hissedilmesinin tek yolu bu.
+            AÇILIŞ EKRANI
+            =============
+            Tek dosya, DIŞ İSTEK YOK. Açılışın hızlı hissedilmesinin tek yolu bu:
+            ağ beklenirse "yükleniyor" ekranının kendisi yüklenmeyi bekler.
+            Yazı tipi de sistem yığınından gelir, indirilen bir yazı tipi
+            ilk kareyi geciktirirdi.
 
-            Renkler web arayüzünün marka belirteçleriyle aynı (--brand-500 / --brand-900).
+            Tüm hareketler yalnızca transform ve opacity üzerinden yapılır:
+            bunlar bileşik katmanda çalışır, düzeni yeniden hesaplatmaz ve
+            uygulama açılırken işlemciyi meşgul etmez. Yükleme sırasında
+            ağır bir animasyon, hızlandırmaya çalıştığımız şeyi yavaşlatırdı.
+
+            Renkler web arayüzünün marka belirteçleriyle aynı tutuldu
+            (--brand-500 #0d8847 / --brand-900 #05341b), çünkü bu ekran
+            uygulamanın ilk izlenimi ve siteyle aynı kimliği taşımalı.
         */
         :root {
-            --yesil: #0d8847;
-            --koyu: #05341b;
-            --metin: #e7efea;
+            --yesil-500: #0d8847;
+            --yesil-300: #4fb87f;
+            --yesil-900: #05341b;
+            --metin: #eaf4ee;
+            --metin-silik: rgba(234, 244, 238, 0.62);
+            --metin-cok-silik: rgba(234, 244, 238, 0.38);
+            --kose: 20px;
+            --sure: 1;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -21,152 +37,426 @@
         html, body {
             height: 100%;
             overflow: hidden;
+            background: transparent;
             -webkit-user-select: none;
             user-select: none;
-            -webkit-app-region: drag;
+            cursor: default;
         }
 
         body {
-            display: grid;
-            place-items: center;
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             color: var(--metin);
-            background: radial-gradient(130% 110% at 50% 0%, #0f7a40 0%, var(--koyu) 62%, #021a0e 100%);
-            border-radius: 14px;
+            /* Pencere çerçevesiz: sürüklenecek bir alan bırakılmazsa açılış
+               ekranı ekranda hiç oynatılamaz. */
+            -webkit-app-region: drag;
         }
 
-        /* Arka planda yavaşça dönen ışık halkası — boş beklemeyi hareketli kılar. */
-        body::before {
+        /* Windows'ta pencere saydam değil (saydam pencerede yazı kenarları
+           bulanıklaşıyor), bu yüzden köşe yuvarlaması yalnızca macOS'ta
+           uygulanır; yoksa köşelerde pencere arka planı siyah görünürdü. */
+        html[data-platform="darwin"] .kabuk { border-radius: var(--kose); }
+
+        .kabuk {
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            display: grid;
+            grid-template-rows: 1fr auto;
+            background:
+                radial-gradient(120% 90% at 50% -10%, #11914e 0%, #086c3a 34%, var(--yesil-900) 70%, #021208 100%);
+            transition: opacity 240ms ease, transform 240ms ease;
+        }
+
+        /* Kapanış: uygulama penceresi açılırken açılış ekranı sönerek gider.
+           Bir anda yok olması "çöktü mü?" hissi veriyordu. */
+        body.bitti .kabuk { opacity: 0; transform: scale(0.97); }
+
+        /* ---------------------------------------------------------- arka plan katmanları */
+
+        /*
+            Üç ayrı katman üst üste bindiriliyor; tek bir efekt yerine
+            katman kullanılmasının sebebi derinlik: hepsi farklı hızda
+            hareket ettiği için yüzey durağan görünmüyor.
+        */
+
+        /* 1) Yavaşça dönen ışık süpürgesi. */
+        .supurge {
+            position: absolute;
+            inset: -45%;
+            background: conic-gradient(from 0deg,
+                transparent 0 68%,
+                rgba(120, 220, 165, 0.16) 82%,
+                rgba(255, 255, 255, 0.07) 90%,
+                transparent 100%);
+            animation: don calc(14s * var(--sure)) linear infinite;
+        }
+
+        /* 2) Sürüklenen iki ışık lekesi — "aurora" etkisi. */
+        .leke {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(46px);
+            opacity: 0.5;
+            will-change: transform;
+        }
+
+        .leke-1 {
+            width: 300px; height: 300px;
+            left: -70px; top: -90px;
+            background: radial-gradient(circle, rgba(79, 184, 127, 0.85), transparent 68%);
+            animation: suzul-1 calc(11s * var(--sure)) ease-in-out infinite;
+        }
+
+        .leke-2 {
+            width: 260px; height: 260px;
+            right: -80px; bottom: -70px;
+            background: radial-gradient(circle, rgba(16, 150, 83, 0.8), transparent 68%);
+            animation: suzul-2 calc(13s * var(--sure)) ease-in-out infinite;
+        }
+
+        /* 3) İnce tanecik dokusu. Düz degrade "plastik" görünüyordu; çok hafif
+              bir gren yüzeye malzeme hissi veriyor. Görsel dosyası yerine
+              degrade deseniyle yapıldı, tek bayt bile dışarıdan gelmiyor. */
+        .gren {
+            position: absolute;
+            inset: 0;
+            opacity: 0.4;
+            background-image:
+                radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+                radial-gradient(rgba(0, 0, 0, 0.07) 1px, transparent 1px);
+            background-size: 3px 3px, 4px 4px;
+            background-position: 0 0, 1px 2px;
+        }
+
+        /* Üstten gelen cam parlaması: kenarın ışığı yakalaması pencereyi
+           yüzer gibi gösteriyor. */
+        .kabuk::after {
             content: '';
             position: absolute;
-            inset: -40%;
-            background: conic-gradient(from 0deg, transparent 0 72%, rgba(79, 184, 127, 0.22) 85%, transparent 100%);
-            animation: don 7s linear infinite;
+            inset: 0;
+            pointer-events: none;
+            border-radius: inherit;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.07);
         }
 
-        @keyframes don { to { transform: rotate(360deg); } }
+        /* ---------------------------------------------------------- orta blok */
 
-        .govde {
+        .orta {
             position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 1.25rem;
-            text-align: center;
+            display: grid;
+            place-items: center;
+            align-content: center;
+            gap: 20px;
+            padding: 34px 32px 8px;
         }
 
         .amblem {
             position: relative;
+            width: 92px;
+            height: 92px;
             display: grid;
             place-items: center;
-            width: 84px;
-            height: 84px;
-            border-radius: 22px;
-            background: linear-gradient(140deg, #14a359, var(--koyu));
-            box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-            animation: nefes 2.6s var(--yumusak, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
         }
 
-        @keyframes nefes {
-            0%, 100% { transform: translateY(0) scale(1); }
-            50%      { transform: translateY(-5px) scale(1.035); }
-        }
-
-        /* Amblemden yayılan dalga: yüklemenin sürdüğünü sessizce anlatır. */
-        .amblem::after {
+        /* Amblemin arkasındaki nefes alan ışık. */
+        .amblem::before {
             content: '';
             position: absolute;
+            inset: 6px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(120, 225, 170, 0.5), transparent 70%);
+            filter: blur(14px);
+            animation: nefes calc(3.2s * var(--sure)) ease-in-out infinite;
+        }
+
+        /* Dönen ilerleme halkası: belirsiz bekleme süresini görünür kılar. */
+        .halka {
+            position: absolute;
             inset: 0;
-            border-radius: 22px;
-            border: 2px solid rgba(79, 184, 127, 0.5);
-            animation: dalga 2.6s ease-out infinite;
+            animation: don calc(2.6s * var(--sure)) linear infinite;
         }
 
-        @keyframes dalga {
-            0%   { transform: scale(1);    opacity: 0.65; }
-            70%  { transform: scale(1.55); opacity: 0; }
-            100% { opacity: 0; }
+        .halka circle {
+            fill: none;
+            stroke: url(#halkaBoya);
+            stroke-width: 2.2;
+            stroke-linecap: round;
+            stroke-dasharray: 26 74;
         }
 
-        .amblem svg { width: 40px; height: 40px; }
+        /* Marka karosu — web arayüzündeki logo karosunun aynısı. */
+        .karo {
+            position: relative;
+            width: 58px;
+            height: 58px;
+            display: grid;
+            place-items: center;
+            border-radius: 17px;
+            background: linear-gradient(140deg, #0fa258, #076b39);
+            box-shadow:
+                0 10px 26px rgba(2, 24, 13, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.28);
+            animation: giris-karo calc(0.7s * var(--sure)) cubic-bezier(0.2, 0.9, 0.25, 1) both;
+        }
+
+        .nabiz { width: 32px; height: 32px; overflow: visible; }
+
+        .nabiz path {
+            fill: none;
+            stroke-width: 2.1;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Soluk iz tüm çizgiyi gösterir; parlak kısa parça üzerinde akar.
+           Fizyoterapi için nabız çizgisi, uygulamanın kendi simgesiyle aynı. */
+        .nabiz .iz { stroke: rgba(255, 255, 255, 0.3); }
+
+        .nabiz .parlak {
+            stroke: #ffffff;
+            stroke-dasharray: 16 84;
+            filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.75));
+            animation: nabiz-ak calc(1.9s * var(--sure)) linear infinite;
+        }
+
+        /* ---------------------------------------------------------- yazılar */
+
+        .baslik { text-align: center; }
 
         .ad {
             font-size: 1.0625rem;
             font-weight: 650;
-            letter-spacing: -0.015em;
+            letter-spacing: 0.012em;
+            animation: giris-yukari calc(0.6s * var(--sure)) ease-out 0.1s both;
         }
 
-        .alt {
-            font-size: 0.8125rem;
-            opacity: 0.62;
-            min-height: 1.2em;
+        .alt-ad {
+            margin-top: 3px;
+            font-size: 0.6875rem;
+            font-weight: 500;
+            letter-spacing: 0.17em;
+            text-transform: uppercase;
+            color: var(--metin-silik);
+            animation: giris-yukari calc(0.6s * var(--sure)) ease-out 0.2s both;
         }
 
-        /* Belirsiz ilerleme çubuğu: yüzde bilmediğimiz için sahte yüzde göstermiyoruz. */
-        .cubuk {
+        /* ---------------------------------------------------------- ilerleme */
+
+        .ilerleme {
+            width: 196px;
+            animation: giris-yukari calc(0.6s * var(--sure)) ease-out 0.3s both;
+        }
+
+        .ray {
             position: relative;
-            width: 190px;
             height: 3px;
             border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
             overflow: hidden;
-            background: rgba(255, 255, 255, 0.12);
         }
 
-        .cubuk span {
+        /* Dolan kısım: aşama bildirimleri geldikçe ilerler. Tamamen sahte bir
+           yüzde göstermek istemedim; her gerçek aşamada gerçekten ilerliyor. */
+        .dolgu {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 10%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--yesil-300), #d9fbe7);
+            box-shadow: 0 0 10px rgba(130, 240, 180, 0.6);
+            transition: width 520ms cubic-bezier(0.22, 0.8, 0.26, 1);
+        }
+
+        /* Dolgunun üzerinde kayan parıltı: aşamalar arasında bekleme olsa da
+           ekran donmuş görünmüyor. */
+        .ray::after {
+            content: '';
             position: absolute;
             inset: 0;
-            width: 42%;
-            border-radius: inherit;
-            background: linear-gradient(90deg, transparent, #4fb87f, #9be6c0, transparent);
-            animation: kay 1.25s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+            width: 40%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+            animation: kay calc(1.5s * var(--sure)) cubic-bezier(0.45, 0, 0.3, 1) infinite;
+        }
+
+        body.hata .dolgu { background: linear-gradient(90deg, #f0a87a, #f6d2b4); box-shadow: none; }
+        body.hata .ray::after { animation: none; opacity: 0; }
+        body.hata .nabiz .parlak { animation-play-state: paused; }
+
+        .durum {
+            margin-top: 11px;
+            height: 1em;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--metin-silik);
+            transition: opacity 180ms ease, transform 180ms ease;
+        }
+
+        /* Aşama yazısı değişirken kısa bir geçiş: yazının bir anda başka bir
+           yazıya dönüşmesi okunmuyordu. */
+        .durum.degisiyor { opacity: 0; transform: translateY(3px); }
+
+        /* ---------------------------------------------------------- alt şerit */
+
+        .alt {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px 15px;
+            font-size: 0.625rem;
+            letter-spacing: 0.06em;
+            color: var(--metin-cok-silik);
+            animation: giris-yukari calc(0.6s * var(--sure)) ease-out 0.42s both;
+        }
+
+        /* ---------------------------------------------------------- hareketler */
+
+        @keyframes don { to { transform: rotate(360deg); } }
+
+        @keyframes nefes {
+            0%, 100% { opacity: 0.45; transform: scale(0.94); }
+            50%      { opacity: 0.85; transform: scale(1.06); }
+        }
+
+        @keyframes nabiz-ak {
+            from { stroke-dashoffset: 100; }
+            to   { stroke-dashoffset: -16; }
         }
 
         @keyframes kay {
-            0%   { transform: translateX(-120%); }
-            100% { transform: translateX(290%); }
+            0%   { transform: translateX(-110%); }
+            100% { transform: translateX(300%); }
         }
 
-        .surum {
-            position: absolute;
-            bottom: 14px;
-            font-size: 0.6875rem;
-            opacity: 0.4;
+        @keyframes suzul-1 {
+            0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+            50%      { transform: translate3d(38px, 26px, 0) scale(1.12); }
         }
 
+        @keyframes suzul-2 {
+            0%, 100% { transform: translate3d(0, 0, 0) scale(1.08); }
+            50%      { transform: translate3d(-32px, -22px, 0) scale(0.95); }
+        }
+
+        @keyframes giris-karo {
+            from { opacity: 0; transform: scale(0.82) translateY(6px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        @keyframes giris-yukari {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /*
+            Hareket azaltma tercihi İŞLETİM SİSTEMİ ayarı; görmezden gelmek
+            bu tercihi açan kullanıcıda baş dönmesine yol açabiliyor. Tüm
+            döngüsel hareketler kapanır, giriş animasyonları anında biter;
+            ekran yine aynı görünür, yalnızca durağan olur.
+        */
         @media (prefers-reduced-motion: reduce) {
-            body::before, .amblem, .amblem::after, .cubuk span { animation: none; }
+            .supurge, .leke, .halka, .amblem::before, .nabiz .parlak, .ray::after { animation: none; }
+            .karo, .ad, .alt-ad, .ilerleme, .alt { animation-duration: 1ms; }
+            .leke { opacity: 0.38; }
         }
     </style>
 </head>
 <body>
-    <div class="govde">
-        <div class="amblem">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>
-            </svg>
+    <div class="kabuk">
+        <div class="supurge"></div>
+        <div class="leke leke-1"></div>
+        <div class="leke leke-2"></div>
+        <div class="gren"></div>
+
+        <div class="orta">
+            <div class="amblem">
+                <svg class="halka" viewBox="0 0 92 92" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="halkaBoya" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#eafff3"></stop>
+                            <stop offset="55%" stop-color="#4fb87f"></stop>
+                            <stop offset="100%" stop-color="rgba(79,184,127,0)"></stop>
+                        </linearGradient>
+                    </defs>
+                    <circle cx="46" cy="46" r="44" pathLength="100"></circle>
+                </svg>
+
+                <div class="karo">
+                    <svg class="nabiz" viewBox="0 0 24 24" aria-hidden="true">
+                        <path class="iz" d="M22 12h-4l-3 9L9 3l-3 9H2" pathLength="100"></path>
+                        <path class="parlak" d="M22 12h-4l-3 9L9 3l-3 9H2" pathLength="100"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <div class="baslik">
+                <div class="ad" id="ad">Özgür Telli</div>
+                <div class="alt-ad">Finans Yönetimi</div>
+            </div>
+
+            <div class="ilerleme">
+                <div class="ray"><div class="dolgu" id="dolgu"></div></div>
+                <div class="durum" id="durum">Başlatılıyor…</div>
+            </div>
         </div>
 
-        <div>
-            <p class="ad">Özgür Telli Finans</p>
-            <p class="alt" id="durum">Başlatılıyor…</p>
+        <div class="alt">
+            <span>Fizyoterapi &amp; Rehabilitasyon</span>
+            <span id="surum"></span>
         </div>
-
-        <div class="cubuk" role="progressbar" aria-label="Yükleniyor"><span></span></div>
     </div>
 
-    <p class="surum" id="surum"></p>
-
     <script>
-        // Ana süreç aşama bildirir; kullanıcı neyin beklendiğini görür.
+        /*
+            Ana süreçle sözleşme (ana.js içindeki asama() ve acilisiKapat()):
+              acilis-surum  → sürüm numarası
+              acilis-durum  → o anki aşama yazısı
+              acilis-bitti  → sönerek kapanma
+            Bu pencerede nodeIntegration açık; uzak bir sayfa yüklenmediği,
+            yalnızca bu yerel dosya gösterildiği için güvenlik sorunu değil.
+        */
         const { ipcRenderer } = require('electron')
 
-        ipcRenderer.on('acilis-durum', (_olay, metin) => {
-            document.getElementById('durum').textContent = metin
+        document.documentElement.dataset.platform = process.platform
+
+        const dolgu = document.getElementById('dolgu')
+        const durum = document.getElementById('durum')
+
+        /* Aşamalar yüzde taşımıyor; her gerçek aşamada kalan yolun bir
+           kısmı kapatılır. Böylece çubuk hiçbir zaman sahte bir şekilde
+           %100'e dayanmaz, ama her zaman ilerler. */
+        let yuzde = 10
+
+        function ilerlet(hedef) {
+            yuzde = Math.min(hedef, 96)
+            dolgu.style.width = yuzde + '%'
+        }
+
+        ipcRenderer.on('acilis-surum', (_o, s) => {
+            document.getElementById('surum').textContent = 'v' + s
         })
 
-        ipcRenderer.on('acilis-surum', (_olay, surum) => {
-            document.getElementById('surum').textContent = 'Sürüm ' + surum
+        ipcRenderer.on('acilis-durum', (_o, metin) => {
+            const hata = /kurulamadı|hata/i.test(metin)
+            document.body.classList.toggle('hata', hata)
+
+            /* Yazıyı doğrudan değiştirmek yerine kısa bir geçişle:
+               bir anda başka yazıya dönüşmesi okunmuyordu. */
+            durum.classList.add('degisiyor')
+            setTimeout(() => {
+                durum.textContent = metin
+                durum.classList.remove('degisiyor')
+            }, 170)
+
+            if (hata) { ilerlet(100); return }
+            ilerlet(/hazır/i.test(metin) ? 100 : yuzde + (96 - yuzde) * 0.55)
+        })
+
+        ipcRenderer.on('acilis-bitti', () => {
+            ilerlet(100)
+            document.body.classList.add('bitti')
         })
     </script>
 </body>

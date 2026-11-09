@@ -88,8 +88,8 @@ iz('open-url bağlandı')
 
 function acilisPenceresi() {
     acilis = new BrowserWindow({
-        width: 420,
-        height: 320,
+        width: 480,
+        height: 360,
         frame: false,
         resizable: false,
         center: true,
@@ -106,6 +106,31 @@ function acilisPenceresi() {
     })
 
     return acilis
+}
+
+/**
+ * Açılış ekranını sönerek kapatır.
+ *
+ * Bir anda yok olması "çöktü mü?" hissi veriyordu. Önce pencereye haber
+ * verilir (CSS geçişi başlar), geçiş bitince pencere kapanır ve ardından
+ * bitti() çağrılır. Toplam bekleme artmasın diye ana penceredeki gecikme
+ * 420 ms'den 200 ms'ye indirildi.
+ */
+function acilisiKapat(bitti) {
+    const p = acilis
+    acilis = null
+
+    if (!p || p.isDestroyed()) {
+        bitti?.()
+
+        return
+    }
+
+    p.webContents.send('acilis-bitti')
+    setTimeout(() => {
+        if (!p.isDestroyed()) p.close()
+        bitti?.()
+    }, 240)
 }
 
 function asama(metin) {
@@ -130,7 +155,15 @@ function anaPencere() {
          * eklenseydi ekranda iki başlık üst üste görünürdü.
          */
         titleBarStyle: 'hidden',
-        ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 14, y: 18 } } : {}),
+        /*
+         * Pencere düğmeleri (kapat/küçült/büyüt) artık kendilerine ayrılmış
+         * 32 piksellik üst şeridin tam ortasında durur. Önce doğrudan içeriğin
+         * üzerinde duruyorlardı ve kenar çubuğunun tepesindeki logoyla iç içe
+         * geçiyorlardı; şeridi önyükleme katmanı çiziyor (onyukleme.js).
+         * Yatay boşluk bırakmak çözüm değildi: menü daraltılınca kenar çubuğu
+         * 76 piksele iniyor ve üç düğme o genişliğin tamamını kaplıyor.
+         */
+        ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 14, y: 10 } } : {}),
         ...(process.platform === 'win32'
             ? { titleBarOverlay: { color: '#ffffff', symbolColor: '#191c35', height: 48 } }
             : {}),
@@ -202,12 +235,29 @@ function anaPencere() {
         if (typeof z === 'number') pencere.webContents.setZoomLevel(z)
 
         setTimeout(() => {
-            if (acilis && !acilis.isDestroyed()) acilis.close()
-            acilis = null
-            pencere.show()
-            if (kayitli.tamEkran) pencere.maximize()
-        }, 420)
+            acilisiKapat(() => {
+                pencere.show()
+                if (kayitli.tamEkran) pencere.maximize()
+            })
+        }, 200)
     })
+
+    /*
+     * --- Tam ekran durumu ---
+     * macOS tam ekranda pencere düğmelerini gizler; o halde onlara ayrılan
+     * üst şerit de kalkmalı, yoksa tepede boş bir bant kalır. Durum hem
+     * değiştikçe gönderilir hem de 'tam-ekran-mi' ucundan sorulabilir:
+     * sayfa tam ekranda yeniden yüklenirse önyükleme katmanının durumu
+     * baştan bilmesi gerekiyor.
+     */
+    const tamEkraniBildir = () => {
+        if (pencere && !pencere.isDestroyed()) {
+            pencere.webContents.send('tam-ekran', pencere.isFullScreen())
+        }
+    }
+
+    pencere.on('enter-full-screen', tamEkraniBildir)
+    pencere.on('leave-full-screen', tamEkraniBildir)
 
     /* --- Pencere konumu hatırlanır --- */
     const konumuKaydet = () => {
@@ -397,6 +447,7 @@ ipcMain.handle('belirtec-kaydet', (_olay, belirtec) => {
 
 ipcMain.handle('belirtec-var-mi', () => Boolean(oku().belirtec))
 ipcMain.handle('surum', () => app.getVersion())
+ipcMain.handle('tam-ekran-mi', () => Boolean(pencere && !pencere.isDestroyed() && pencere.isFullScreen()))
 ipcMain.handle('yeniden-yukle', () => { pencere?.loadURL(ADRES) })
 
 ipcMain.handle('disarida-ac', (_olay, url) => {

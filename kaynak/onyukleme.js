@@ -64,8 +64,54 @@ window.addEventListener('DOMContentLoaded', () => {
         .masaustu-uygulama .topbar [role="button"],
         .masaustu-uygulama .topbar .btn { -webkit-app-region: no-drag; }
 
-        /* macOS'ta trafik ışıklarına yer açılır. */
-        .masaustu-darwin .topbar { padding-left: 78px; }
+        /*
+            macOS: PENCERE DÜĞMELERİNE AYRILMIŞ ÜST ŞERİT.
+
+            Önce üst çubuğa 78 piksel sol boşluk bırakılıyordu. Yetmedi:
+            logo üst çubukta değil, kenar çubuğunun tepesinde duruyor ve
+            kapat/küçült/büyüt düğmeleri doğrudan onun üzerine biniyordu.
+            Kenar çubuğuna boşluk bırakmak da çözüm değil, çünkü menü
+            daraltılınca genişliği 76 piksele iniyor ve üç düğme o alanın
+            tamamını kaplıyor.
+
+            Bu yüzden düğmelere kendi şeridi veriliyor ve arayüzün tamamı
+            32 piksel aşağı kayıyor. Hizalama bozulmuyor: her şey birlikte
+            kayıyor, ölçü belirteçlerine (--topbar-h, --sidebar-w) hiç
+            dokunulmuyor. Şeridin rengi arayüzün kendi --surface belirtecinden
+            geldiği için açık ve koyu temada kendiliğinden doğru.
+
+            Tam ekranda macOS düğmeleri gizler; o zaman şerit de kalkar,
+            yoksa tepede boş bir bant kalırdı.
+        */
+        html.masaustu-darwin:not(.masaustu-tam-ekran) { --mac-serit: 32px; }
+
+        #masaustu-serit {
+            display: none;
+            position: fixed;
+            inset: 0 0 auto 0;
+            height: var(--mac-serit, 0px);
+            z-index: 2147483646;
+            background: var(--surface, #ffffff);
+            -webkit-app-region: drag;
+        }
+
+        html.masaustu-darwin:not(.masaustu-tam-ekran) #masaustu-serit { display: block; }
+
+        /* Akıştaki içerik şeridin altından başlar. */
+        html.masaustu-darwin:not(.masaustu-tam-ekran) body { padding-top: var(--mac-serit); }
+
+        /* Gövde boşluğu sayfayı 32 piksel uzatıp gereksiz bir kaydırma
+           çubuğu çıkarırdı; min-h-screen aynı miktarda kısaltılıyor.
+           (Hem uygulama hem giriş düzeninin kökü bu sınıfı taşıyor.) */
+        html.masaustu-darwin:not(.masaustu-tam-ekran) body > .min-h-screen {
+            min-height: calc(100vh - var(--mac-serit));
+        }
+
+        /* Sabit ve yapışkan öğeler gövde boşluğundan etkilenmez; ayrıca
+           kaydırılmaları gerekiyor. */
+        html.masaustu-darwin:not(.masaustu-tam-ekran) aside > .fixed.inset-y-0,
+        html.masaustu-darwin:not(.masaustu-tam-ekran) aside > .fixed.inset-0,
+        html.masaustu-darwin:not(.masaustu-tam-ekran) .topbar { top: var(--mac-serit); }
 
         /* Windows'ta pencere düğmeleri sağ üstte durur; üst çubuğun sağ ucu boşaltılır. */
         .masaustu-win32 .topbar { padding-right: 148px; }
@@ -83,6 +129,8 @@ window.addEventListener('DOMContentLoaded', () => {
         }
 
         #masaustu-gecis[data-durum="basladi"] { opacity: 1; }
+
+        html.masaustu-darwin:not(.masaustu-tam-ekran) #masaustu-gecis { top: var(--mac-serit); }
 
         #masaustu-gecis::before {
             content: '';
@@ -111,4 +159,23 @@ window.addEventListener('DOMContentLoaded', () => {
     const cubuk = document.createElement('div')
     cubuk.id = 'masaustu-gecis'
     document.body.appendChild(cubuk)
+
+    /* Şerit her platformda eklenir ama yalnızca macOS'ta görünür: CSS'te
+       tek bir koşul olması, iki yerde birbirinden kopabilecek iki koşul
+       olmasından iyi. */
+    const serit = document.createElement('div')
+    serit.id = 'masaustu-serit'
+    document.body.appendChild(serit)
+
+    /* Sayfa tam ekranda yeniden yüklenmiş olabilir; durum baştan sorulur,
+       yoksa şerit tam ekranda da görünür kalırdı. */
+    ipcRenderer.invoke('tam-ekran-mi')
+        .then((acik) => tamEkraniUygula(acik))
+        .catch(() => {})
 })
+
+function tamEkraniUygula(acik) {
+    document.documentElement.classList.toggle('masaustu-tam-ekran', Boolean(acik))
+}
+
+ipcRenderer.on('tam-ekran', (_olay, acik) => tamEkraniUygula(acik))
