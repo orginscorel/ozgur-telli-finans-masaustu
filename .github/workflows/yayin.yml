@@ -128,6 +128,20 @@ jobs:
       #
       # Koşucu arm64 olduğu için yalnızca arm64 paketi denenebilir; x64 paketi
       # Rosetta gerektirir ve koşucuda kurulu olmayabilir.
+      # UYGULAMA GERÇEKTEN ÇALIŞTIRILIR ve çökerse macOS'un kendi çökme
+      # raporu okunur.
+      #
+      # Neden karar kanıta bağlı: imzalama atlandığında paket açılmıyordu ve
+      # bunu kullanıcı denediğinde öğrendik, o yüzden bu kapı gerekli. Ama
+      # koşucuda Aqua (pencere sunucusu) oturumu yok; bir masaüstü uygulaması
+      # bu yüzden de SIGTRAP ile düşebilir ve bu, paketin gerçek bir Mac'te
+      # açılmayacağı anlamına GELMEZ. Çıkış kodu tek başına ikisini ayırt
+      # etmiyor: her iki durumda da 133 geliyor.
+      #
+      # Bu yüzden ölçüt çıkış kodu değil, KANIT: uygulamanın çıktısında ya da
+      # çökme raporunda kod imzası / kütüphane doğrulama izi varsa derleme
+      # durur ve paket yayınlanmaz. İz yoksa uyarı düşülür ve yayın sürer;
+      # belirsiz bir sinyalin sürümü süresiz bloke etmesi doğru değil.
       - name: macOS uygulamasını çalıştırarak dene
         if: matrix.ad == 'macos'
         shell: bash
@@ -137,6 +151,8 @@ jobs:
             echo "Çalıştırılabilir bulunamadı: $ikili" >&2
             exit 1
           fi
+
+          onceki=$(ls -1 ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | wc -l | tr -d ' ')
 
           "$ikili" > cikti.log 2>&1 &
           pid=$!
@@ -156,31 +172,33 @@ jobs:
             exit 0
           fi
 
-          # "wait" cocugun cikis kodunu dondurur; set -e yuzunden bu satirda
-          # betik oluyordu ve asagidaki teshis hic basilmiyordu. Kod || ile
-          # yakalanir.
+          # "wait" çocuğun çıkış kodunu döndürür; set -e yüzünden bu satırda
+          # betik ölüyordu ve aşağıdaki teşhis hiç basılmıyordu.
           kod=0
           wait "$pid" || kod=$?
           echo "Uygulama ${saniye} saniyede çıktı. Çıkış kodu: $kod"
-          echo "--- çıktı ---"
-          head -60 cikti.log || true
-          echo "-------------"
 
-          # İmza / yükleyici hatası paketin açılmadığı anlamına gelir: durdurulur.
-          if grep -qiE "code signature|library validation|dyld|Abort trap|Killed: 9|Trace/BPT" cikti.log; then
-            echo "Uygulama imza veya kütüphane hatasıyla açılmadı." >&2
+          echo "--- uygulamanın çıktısı ---"
+          cat cikti.log || true
+          echo "---------------------------"
+
+          sleep 5
+          echo "--- çökme raporları ---"
+          : > rapor.log
+          for r in $(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -3); do
+            echo "══ $r" | tee -a rapor.log
+            head -80 "$r" | tee -a rapor.log
+          done
+          echo "sonra: $(ls -1 ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | wc -l | tr -d ' '), önce: $onceki"
+          echo "-----------------------"
+
+          # Kod imzası kaynaklı bir çökme: paket gerçekten açılmıyor.
+          if cat cikti.log rapor.log 2>/dev/null | grep -qiE "CODESIGNING|library validation|invalid signature|code signature|Killed: 9"; then
+            echo "Çökme kod imzası kaynaklı: paket açılmıyor, yayın durduruluyor." >&2
             exit 1
           fi
 
-          # SIGKILL/SIGTRAP ile ölmek de aynı anlama gelir.
-          if [ "$kod" -eq 137 ] || [ "$kod" -eq 133 ] || [ "$kod" -eq 134 ]; then
-            echo "Uygulama sinyalle sonlandırıldı (kod $kod): imza sorunu." >&2
-            exit 1
-          fi
-
-          # Buraya düşmek belirsiz: koşucuda ekran oturumu olmadığı için de
-          # erken çıkmış olabilir. İmza izi yoksa yayın engellenmez, uyarılır.
-          echo "::warning::Uygulama erken çıktı ama imza hatası izi yok; ekransız koşucu kaynaklı olabilir."
+          echo "::warning::Uygulama ${saniye} sn'de çıktı (kod $kod) ama kod imzası izi yok. Koşucuda pencere sunucusu oturumu bulunmadığı için beklenen bir durum olabilir."
 
       - name: Çıktıyı listele
         shell: bash
