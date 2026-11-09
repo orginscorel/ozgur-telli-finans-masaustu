@@ -76,6 +76,29 @@ jobs:
           echo "Üç deneme de başarısız oldu." >&2
           exit 1
 
+      # İmza DOĞRULANIR, varsayılmaz.
+      #
+      # 2.0.1'de derleme sorunsuz bitti ve çalıştırılamayan bir DMG üretti:
+      # imzalama sessizce atlanmıştı. Derlemenin "başarılı" demesi paketin
+      # açıldığı anlamına gelmiyordu. Bundan sonra imza yoksa derleme burada
+      # durur ve bozuk paket hiç yayınlanmaz.
+      - name: macOS imzasını doğrula
+        if: matrix.ad == 'macos'
+        shell: bash
+        run: |
+          bulundu=0
+          for uyg in dagitim/mac*/*.app; do
+            [ -d "$uyg" ] || continue
+            bulundu=1
+            echo "── $uyg"
+            codesign --verify --deep --strict --verbose=2 "$uyg"
+            codesign -dvv "$uyg" 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier' || true
+          done
+          if [ "$bulundu" -eq 0 ]; then
+            echo "Doğrulanacak .app bulunamadı." >&2
+            exit 1
+          fi
+
       - name: Çıktıyı listele
         shell: bash
         run: ls -lh dagitim

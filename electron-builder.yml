@@ -63,8 +63,20 @@ mac:
   icon: varliklar/icon.icns
   category: public.app-category.finance
   darkModeSupport: true
-  # İmzasız paket: Gatekeeper ilk açılışta uyarır, kullanıcı sağ tık → Aç yapar.
-  identity: null
+  # AD-HOC İMZA. Sertifika gerektirmez ama imzasız da değildir.
+  #
+  # Burada daha önce "identity: null" yazıyordu ve derleme "skipped macOS code
+  # signing" diyerek paketi hiç imzalamıyordu. Sonuç: macOS uygulamayı
+  # açmıyor, "hasar görmüş ve açılamıyor" diyordu. Sebep şu: Apple Silicon'da
+  # imza ZORUNLU — çekirdek imzasız bir arm64 ikilisini çalıştırmıyor ve
+  # macOS bu durumu bozuk dosya gibi bildiriyor. Sağ tık → Aç da kurtarmıyor,
+  # çünkü sorun güvenilirlik değil, çalıştırılabilirlik.
+  #
+  # "-" kimliği codesign'ın ad-hoc imzası: Apple Developer hesabı ve sertifika
+  # istemez, ikiliyi çalıştırılabilir kılar. Notarize edilmediği için Gatekeeper
+  # yine uyarır, ama bu kez aşılabilir bir uyarı ("geliştirici doğrulanamadı")
+  # ve sağ tık → Aç ile geçilir.
+  identity: '-'
 
 dmg:
   title: Özgür Telli Finans ${version}
