@@ -68,13 +68,16 @@ if (!tekOrnek) {
  * (geliştirme) çalıştırılabilir yolu Electron'un kendisini gösterdiği için
  * kayıt anlamlı olmaz, bu yüzden yalnızca pakette yapılır.
  */
+iz(`şema kaydı öncesi (paket: ${app.isPackaged})`)
 if (app.isPackaged) app.setAsDefaultProtocolClient(SEMA)
+iz('şema kaydı sonrası')
 
 /* macOS derin bağlantıyı argümanla değil bu olayla veriyor. */
 app.on('open-url', (olay, url) => {
     olay.preventDefault()
     yolaGit(url)
 })
+iz('open-url bağlandı')
 
 function acilisPenceresi() {
     acilis = new BrowserWindow({
@@ -395,6 +398,7 @@ ipcMain.handle('disarida-ac', (_olay, url) => {
 
 /* ------------------------------------------------------------------ yaşam döngüsü */
 
+iz('ipcMain köprüsü kuruldu, whenReady bekleniyor')
 app.whenReady().then(() => {
     iz('app hazır')
     acilisPenceresi()
@@ -437,6 +441,7 @@ app.on('window-all-closed', () => {
 })
 
 /* Güvenlik: uygulama içinden yeni pencere açılmasına ve izin isteklerine kapalıyız. */
+iz('modül sonu')
 app.on('web-contents-created', (_olay, icerik) => {
     icerik.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url)
