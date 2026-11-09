@@ -63,6 +63,32 @@ mac:
   icon: varliklar/icon.icns
   category: public.app-category.finance
   darkModeSupport: true
+  # UYGULAMA ADI macOS'ta ASCII OLMAK ZORUNDA.
+  #
+  # Paket adı "Özgür Telli Finans" olduğunda uygulama açılışta hiçbir şey
+  # yazdırmadan SIGTRAP ile ölüyordu. Koşucuda tek değişkenli bir deneyle
+  # kanıtlandı: aynı kod, aynı imza, aynı yetkilendirmeler, aynı asar —
+  # yalnızca productName "FzyDeneme" yapıldığında uygulama sonuna kadar
+  # açıldı (açılış izi 21 adımı tamamladı), Türkçe adla ölüyordu.
+  #
+  # Sebep: macOS dosya adlarını AYRIK (NFD) biçimde saklar, Info.plist ve
+  # kod imzası ise BİRLEŞİK (NFC) biçimde tutar. Paket adı, içindeki
+  # çalıştırılabilir dosya ve dört yardımcı uygulama ("… Helper",
+  # "… Helper (GPU)", "… Helper (Plugin)", "… Helper (Renderer)") hep bu
+  # addan türetildiği için Chromium yardımcı süreç yollarını bulamıyor.
+  #
+  # Veri dizini suçsuz: --user-data-dir ile ASCII bir yol verildiğinde de
+  # ölüyordu. Tek örnek kilidi de suçsuz: kilitsiz çalıştırıldığında da
+  # ölüyordu.
+  #
+  # Dosya sisteminde ASCII ad kullanılır, EKRANDA yine Türkçe ad görünür:
+  # macOS menü çubuğunda ve Finder'da CFBundleDisplayName gösterilir.
+  # Böylece kullanıcı hiçbir fark görmez. ASCII ada geçiş Paketle adımında
+  # yalnızca macOS için yapılır (is akışındaki -c.productName); Windows
+  # Türkçe adı korur, yoksa kurulu Windows uygulamalarının ayarları
+  # (%APPDATA% altındaki klasör) yetim kalırdı.
+  extendInfo:
+    CFBundleDisplayName: Özgür Telli Finans
   # AD-HOC İMZA. Sertifika gerektirmez ama imzasız da değildir.
   #
   # Burada daha önce "identity: null" yazıyordu ve derleme "skipped macOS code
@@ -79,10 +105,12 @@ mac:
   identity: '-'
   # Hardened Runtime AÇIK + ad-hoc imza için gereken yetkilendirmeler.
   #
-  # Önce "hardenedRuntime: false" denendi ve YANLIŞ çıktı: electron-builder
-  # Hardened Runtime açıkken JIT ve kütüphane yetkilerini kendi varsayılan
-  # listesinden veriyor; kapatınca liste de uygulanmıyor ve uygulama açılışta
-  # SIGTRAP (çıkış kodu 133) ile ölüyor. Derleme kaydındaki uyarı aslında
+  # Önce "hardenedRuntime: false" denendi. O deneme de SIGTRAP verdi ve ben
+  # bunu yetkilendirmelerin kalkmasına bağladım; SONRADAN YANLIŞ OLDUĞU
+  # ANLAŞILDI — asıl sebep uygulama adındaki Türkçe harflerdi ve her iki
+  # ayarda da ölüyordu. Yine de Hardened Runtime AÇIK bırakılıyor, çünkü
+  # electron-builder JIT ve kütüphane yetkilerini ancak açıkken kendi
+  # varsayılan listesinden veriyor. Derleme kaydındaki uyarı aslında
   # doğrudan çözümü söylüyordu: eksik olan şey disable-library-validation
   # yetkisiydi, Hardened Runtime değil.
   #

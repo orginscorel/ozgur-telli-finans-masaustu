@@ -37,7 +37,13 @@ jobs:
             komut: --win
           - os: macos-latest
             ad: macos
-            komut: --mac
+            # productName macOS'ta ASCII'ye çevrilir. Türkçe adla paketlenen
+            # uygulama açılışta SIGTRAP ile ölüyordu; sebebi ve kanıtı
+            # electron-builder.yml'in mac bölümünde yazılı. Ekranda görünen
+            # ad CFBundleDisplayName ile yine "Özgür Telli Finans".
+            # Windows Türkçe adı korur: değiştirilse kurulu Windows
+            # uygulamalarının %APPDATA% ayarları yetim kalırdı.
+            komut: --mac -c.productName="Ozgur Telli Finans"
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.ad }}
@@ -157,138 +163,83 @@ jobs:
       #
       # Bu gövde üç sahte senaryoyla sınandı (ayakta kalan / SIGTRAP ile ölen /
       # imza hatası basan) ve üçünde de doğru karar verdiği doğrulandı.
-      # macOS AÇILIŞ TEŞHİSİ.
+      # macOS AÇILIŞ DENETİMİ — YAYINI DURDURUR.
       #
-      # Paket imzalı, yetkilendirmeleri yerinde ve asar bütünlüğü doğru
-      # olmasına rağmen uygulama açılışta SIGTRAP ile ölüyor. Gerçek bir
-      # Mac'te de aynı: kullanıcı "hata vermeden direkt kapanıyor" dedi.
+      # 2.0.1 ve 2.0.3'te derleme "başarılı" dedi ve hiç açılmayan paketler
+      # yayınlandı; ikisini de kullanıcı keşfetti. Artık paket GERÇEKTEN
+      # çalıştırılır ve açılmazsa iş burada durur.
       #
-      # Şu ana kadar ELENENLER:
-      #   asar bütünlüğü     beklenen özet = gerçek özet
-      #   imza/kütüphane      dyld 1179 kütüphane yükledi, AppKit'e girdi
-      #   GPU/yardımcılar     --disable-gpu --no-sandbox ile de ölüyor
-      #   platform/Electron   çıplak Electron 45.2.3 aynı koşucuda çalıştı
-      #   bizim modül kodu    iz "modül sonu"na kadar gidiyor
+      # Açılıştaki sessiz ölümün sebebi uygulama adındaki Türkçe harflerdi;
+      # koşucuda tek değişkenli deneyle bulundu (ayrıntısı
+      # electron-builder.yml mac bölümünde). Bu adım o düzeltmenin yerinde
+      # durduğunu her yayında yeniden ölçer.
       #
-      # KALAN: modül bitti, ready HİÇ gelmiyor, CrBrowserMain'de brk #0.
-      # Yani suçlu Electron'un ready öncesi kurulumunu etkileyen bir
-      # paket özelliği. Aşağıdaki denetimler birer birer o özellikleri
-      # değiştirip hangisinin kurtardığını ölçer.
-      #
-      # ÖNEMLİ: her deneme ZAMAN SINIRLI. Önceki turda denemeler ön planda
-      # ve sınırsız çalıştırıldı; bir deneme ölmeyince adım 45 dakika
-      # takıldı ve hiçbir çıktı alınamadı (GitHub süren işin günlüğünü
-      # vermiyor). macOS'ta "timeout" komutu bulunmadığı için sınır
-      # arka plana atıp beklemekle konuyor.
-      - name: macOS açılış teşhisi
+      # macOS'ta "timeout" komutu yok; sınır arka plana atıp beklemekle
+      # konuyor. Önceki turda sınırsız çalıştırma yüzünden adım 45 dakika
+      # takılmış ve hiçbir çıktı alınamamıştı.
+      - name: macOS uygulamasını çalıştırarak doğrula
         if: matrix.ad == 'macos'
         shell: bash
         run: |
           set +e
           set +o pipefail
 
-          uyg="dagitim/mac-arm64/Özgür Telli Finans.app"
-          ikili="$uyg/Contents/MacOS/Özgür Telli Finans"
+          uyg=$(find dagitim/mac-arm64 -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+          if [ -z "$uyg" ]; then
+            echo "::error::arm64 uygulama paketi bulunamadı."
+            find dagitim -maxdepth 2 | head -20
+            exit 1
+          fi
+          ikili=$(find "$uyg/Contents/MacOS" -maxdepth 1 -type f | head -1)
+          echo "paket: $uyg"
+          echo "ikili: $ikili"
+          echo "görünen ad: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$uyg/Contents/Info.plist" 2>/dev/null || echo '(yok)')"
+          echo "paket adı : $(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$uyg/Contents/Info.plist" 2>/dev/null)"
 
-          # dene <etiket> <günlük> <komut...>
-          # Komutu en çok 10 saniye çalıştırır. Ayakta kalırsa öldürür ve
-          # "AYAKTA" der; kendisi ölürse çıkış kodunu yazar. Ayakta kalmak
-          # BAŞARI demek: uygulama açılıyor.
-          dene() {
-            etiket="$1"; gunluk="$2"; shift 2
-            "$@" > "$gunluk" 2>&1 &
-            pid=$!
-            bekleme=0
-            while [ "$bekleme" -lt 10 ]; do
-              kill -0 "$pid" 2>/dev/null || break
-              sleep 1
-              bekleme=$((bekleme + 1))
-            done
-            if kill -0 "$pid" 2>/dev/null; then
-              kill "$pid" 2>/dev/null
-              wait "$pid" 2>/dev/null
-              echo "$etiket → AYAKTA KALDI (10 sn) ✔"
-            else
-              wait "$pid" 2>/dev/null
-              echo "$etiket → öldü, çıkış kodu $?"
+          # Paket adının ASCII olduğunu doğrula: düzeltmenin sessizce geri
+          # alınması en kolay şekilde buradan kaçardı.
+          if printf '%s' "$(basename "$uyg")" | LC_ALL=C grep -q '[^ -~]'; then
+            echo "::error::Paket adı ASCII değil: $(basename "$uyg"). macOS'ta bu açılışta SIGTRAP'e yol açıyor."
+            exit 1
+          fi
+          echo "✔ paket adı ASCII"
+
+          echo "──────── uygulama çalıştırılıyor ────────"
+          FZY_IZ=1 "$ikili" > acilis.log 2>&1 &
+          pid=$!
+          bekleme=0
+          while [ "$bekleme" -lt 15 ]; do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+            bekleme=$((bekleme + 1))
+          done
+
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            echo "✔ uygulama 15 saniye ayakta kaldı"
+            echo "──── açılış izi ────"
+            grep '^\[iz\]' acilis.log
+            if ! grep -q '^\[iz\] açılış tamamlandı' acilis.log; then
+              echo "::error::Uygulama ayakta ama açılış tamamlanmadı; iz yarıda kesildi."
+              exit 1
             fi
-            echo "   iz: $(grep -c '^\[iz\]' "$gunluk" 2>/dev/null) satır, son: $(grep '^\[iz\]' "$gunluk" 2>/dev/null | tail -1)"
-          }
-
-          echo "════════ A) olduğu gibi ════════"
-          dene "olduğu gibi" duz.log env FZY_IZ=1 "$ikili"
-
-          echo
-          echo "════════ B) ASCII veri dizini ════════"
-          # Kullanıcı verisi dizini uygulama adından türetiliyor:
-          #   ~/Library/Application Support/Özgür Telli Finans
-          # Ölüm tam olarak Chromium'un bu profili kurduğu safhada
-          # (proxy yapılandırmasından sonra, ready'den önce) oluyor.
-          rm -rf /tmp/udd && mkdir -p /tmp/udd
-          dene "ASCII veri dizini" udd.log env FZY_IZ=1 "$ikili" --user-data-dir=/tmp/udd
-
-          echo
-          echo "════════ C) tek örnek kilidi olmadan ════════"
-          # requestSingleInstanceLock Chromium'un ProcessSingleton'ını
-          # kurar: userData altında bir unix soketi açar ve dinlemeye
-          # başlar. Bunu mesaj döngüsü başlamadan çağırıyoruz.
-          dene "kilitsiz" kilitsiz.log env FZY_IZ=1 FZY_KILIT=kapali "$ikili"
-
-          echo
-          echo "════════ D) Chromium günlüğü ════════"
-          dene "günlüklü" gunluk.log env FZY_IZ=1 ELECTRON_ENABLE_LOGGING=1 \
-            ELECTRON_ENABLE_STACK_DUMPING=1 "$ikili" --enable-logging=stderr --v=1
-          echo "--- son 20 satır (iz hariç) ---"
-          grep -v '^\[iz\]' gunluk.log | tail -20
-
-          echo
-          echo "════════ E) lldb yığın izi ════════"
-          if command -v lldb >/dev/null 2>&1; then
-            lldb -b -k "bt" -k "quit" -o "run" -- "$ikili" > lldb.log 2>&1 &
-            lpid=$!
-            b=0
-            while [ "$b" -lt 60 ]; do
-              kill -0 "$lpid" 2>/dev/null || break
-              sleep 1
-              b=$((b + 1))
-            done
-            kill "$lpid" 2>/dev/null
-            wait "$lpid" 2>/dev/null
-            sed -n '/stop reason/,$p' lldb.log | head -30
+            echo "✔ açılış izi sonuna kadar tamamlandı"
+            exit 0
           fi
 
-          echo
-          echo "════════ F) ASCII uygulama adı ════════"
-          # Uygulama adı "Özgür Telli Finans" — Ö ve ü içeriyor. macOS
-          # dosya adlarını NFD, Info.plist ve imza NFC biçiminde tutabilir.
-          # Yalnızca adı değiştirilmiş bir deneme paketi üretilir; paket
-          # YAYINLANMAZ, sadece ölçüm içindir.
-          npx electron-builder --mac dir \
-            -c.productName="FzyDeneme" \
-            -c.directories.output=denetim > derleme-denetim.log 2>&1
-          echo "deneme paketi çıkışı: $?"
-          dene2=$(find denetim -maxdepth 8 -type f -path "*FzyDeneme.app/Contents/MacOS/*" 2>/dev/null | head -1)
-          echo "deneme ikilisi: ${dene2:-bulunamadı}"
-          if [ -n "$dene2" ]; then
-            dene "ASCII ad" ascii.log env FZY_IZ=1 "$dene2"
-          else
-            find denetim -maxdepth 4 2>/dev/null | head -12
-            tail -12 derleme-denetim.log
-          fi
-
-          echo
-          echo "════════ G) çökme raporu ════════"
-          rapor=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"*Telli*.ips 2>/dev/null | head -1)
-          if [ -n "$rapor" ]; then
-            echo "rapor: $rapor"
-            python3 araclar/ips-oku.py "$rapor"
-          else
-            echo "çökme raporu yazılmamış."
-          fi
-
-          # Teşhis adımı yayını ENGELLEMEZ: amacı kanıt toplamak.
-          echo "::warning::macOS açılış teşhisi tamamlandı; çıktıya bakılacak."
-          exit 0
+          wait "$pid"
+          kod=$?
+          echo "::error::Uygulama açılışta kapandı. Çıkış kodu: $kod"
+          echo "──── açılış izi (kesildiği yer) ────"
+          grep '^\[iz\]' acilis.log || echo "(iz yok)"
+          echo "──── diğer çıktı ────"
+          grep -v '^\[iz\]' acilis.log | tail -25
+          echo "──── çökme raporu ────"
+          sleep 5
+          rapor=$(ls -t "$HOME/Library/Logs/DiagnosticReports/"*.ips 2>/dev/null | head -1)
+          if [ -n "$rapor" ]; then python3 araclar/ips-oku.py "$rapor"; else echo "(rapor yok)"; fi
+          exit 1
 
       - name: Çıktıyı listele
         shell: bash
