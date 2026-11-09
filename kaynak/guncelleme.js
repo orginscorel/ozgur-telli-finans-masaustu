@@ -85,7 +85,22 @@ async function haberVer(pencere) {
 
 /** Windows: indirir, kurulumu kullanıcının onayıyla yapar. */
 function kendiliginden(pencere) {
-    const { autoUpdater } = require('electron-updater')
+    let autoUpdater
+
+    /*
+     * require paketin içinde çözülemezse (bağımlılık paketlenmemiş, dosya
+     * bozulmuş) buradan SENKRON bir hata fırlar. Yakalanmazsa ana süreçteki
+     * uncaughtException yakalayıcısına düşer ve kullanıcı açılışta hata
+     * kutusuyla karşılaşır. Güncelleme denetiminin başarısızlığı uygulamanın
+     * kullanılmasını engellememeli: haber verme yoluna düşülür.
+     */
+    try {
+        ({ autoUpdater } = require('electron-updater'))
+    } catch {
+        haberVer(pencere)
+
+        return
+    }
 
     autoUpdater.autoDownload = true
     /* Kurulum kullanıcı onayıyla yapılır: çalışma ortasında uygulamanın
