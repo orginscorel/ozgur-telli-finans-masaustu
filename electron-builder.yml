@@ -16,6 +16,7 @@ directories:
 files:
   - kaynak/**/*
   - varliklar/tepsi.png
+  - varliklar/tepsi-win.png
   - package.json
 
 # Dosya adları ASCII tutulur: Türkçe karakterli dosya adları indirme
@@ -57,10 +58,25 @@ nsis:
   deleteAppDataOnUninstall: false
 
 mac:
+  # İKİ HEDEF, iki ayrı iş için:
+  #
+  #   dmg — ilk kurulum. Kullanıcı açıp uygulamayı Uygulamalar klasörüne
+  #         sürüklüyor; macOS'ta beklenen dağıtım biçimi bu.
+  #   zip — UYGULAMA İÇİ GÜNCELLEME. Güncelleme paketi uygulamanın kendisi
+  #         tarafından indirilip ditto ile açılıyor (bkz. mac-guncelleme.js).
+  #         DMG'yi açmak hdiutil ile bağlama/çözme gerektirir ve yarıda
+  #         kalırsa bağlı bir disk bırakır; ZIP tek adımda açılıyor.
+  #         Ayrıca SHA-512'si latest-mac.yml'ye yazılıyor, doğrulama
+  #         bu yüzden mümkün.
   target:
     - target: dmg
       arch: [arm64, x64]
-  icon: varliklar/icon.icns
+    - target: zip
+      arch: [arm64, x64]
+  # Kaynak PNG veriliyor, .icns'i electron-builder üretiyor. Elle yapılmış
+  # eski icon.icns tek boyut (ic07) içeriyordu; macOS kalan boyutları
+  # ölçekleyerek uyduruyor ve Dock'ta bulanık görünüyordu.
+  icon: varliklar/icon.png
   category: public.app-category.finance
   darkModeSupport: true
   # UYGULAMA ADI macOS'ta ASCII OLMAK ZORUNDA.

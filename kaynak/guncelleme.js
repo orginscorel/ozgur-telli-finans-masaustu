@@ -6,12 +6,14 @@
  * Windows — electron-updater paketi indirir ve kurar. Kullanıcıdan tek istenen
  * "şimdi yeniden başlat" onayı.
  *
- * macOS — KENDİLİĞİNDEN GÜNCELLEME YAPILAMAZ. Apple'ın güncelleme çatısı
- * (Squirrel.Mac) paketin geçerli bir imza taşımasını şart koşar; imzasız
- * uygulamada indirme başarılı olsa bile kurulum sessizce reddedilir. İmza
- * alınmadığı için macOS'ta yalnızca haber verilir: sürüm karşılaştırılır ve
- * yeni sürüm varsa indirme bağlantısı açılır. Apple Developer hesabı alınırsa
- * buradaki dallanma kaldırılıp Windows yolu ikisine de uygulanabilir.
+ * macOS — güncelleme UYGULAMA İÇİNDE yapılır ama Apple'ın çatısıyla değil.
+ * Squirrel.Mac, indirilen paketin çalışan uygulamanın imza gereksinimini
+ * karşılamasını şart koşuyor; ad-hoc imzada bu gereksinim ikilinin kendi
+ * özetine bağlı olduğu için yeni bir derleme onu asla karşılamıyor ve
+ * kurulum sessizce reddediliyor. Bu yüzden indirme ve değiş-tokuş elle
+ * yapılıyor: bkz. mac-guncelleme.js. Oradaki yol işlemezse (paket salt
+ * okunur bir yerde, beslemede ZIP yok, ağ hatası) haber verme yoluna
+ * düşülür ve kullanıcı sürüm atlamaz.
  *
  * Sürüm bilgisi sitenin kendi ucundan okunur (/api/masaustu/surum). O uç zaten
  * config/masaustu.php içeriğini veriyor; ayrı bir sürüm dosyası tutmak aynı
@@ -19,26 +21,11 @@
  */
 const { app, dialog, shell } = require('electron')
 const { ADRES } = require('./ayarlar')
+const { dahaYeni } = require('./surum')
+const macGuncelleme = require('./mac-guncelleme')
 
 /* 6 saat: günde birkaç kez yeterli. Daha sık sormak sunucuya boş yük. */
 const ARALIK = 6 * 60 * 60 * 1000
-
-/**
- * "1.10.0" > "1.9.0" doğru sonuçlansın diye parçalar SAYI olarak karşılaştırılır.
- * Dizgi karşılaştırması bu örnekte yanlış cevap verirdi ("1.10" < "1.9").
- */
-function dahaYeni(uzak, yerel) {
-    const a = String(uzak).split('.').map((n) => parseInt(n, 10) || 0)
-    const b = String(yerel).split('.').map((n) => parseInt(n, 10) || 0)
-
-    for (let i = 0; i < Math.max(a.length, b.length); i++) {
-        const x = a[i] || 0
-        const y = b[i] || 0
-        if (x !== y) return x > y
-    }
-
-    return false
-}
 
 /** Siteden yayınlanmış sürümü ve indirme bağlantılarını okur. */
 async function yayinBilgisi() {
@@ -141,9 +128,21 @@ function guncellemeyiBaslat(pencere) {
     const calistir = () => {
         if (!pencere || pencere.isDestroyed()) return
 
-        if (process.platform === 'win32') kendiliginden(pencere)
-        else haberVer(pencere)
+        if (process.platform === 'win32') { kendiliginden(pencere); return }
+
+        if (!macGuncelleme.kurulabilir()) { haberVer(pencere); return }
+
+        /* Uygulama içi kurulum denenir; olmazsa kullanıcı sürüm atlamasın
+           diye haber verme yoluna düşülür. Kendiliğinden denetimde hata
+           kutusu GÖSTERİLMEZ: kullanıcı bir şey istemedi. */
+        macGuncelleme.guncelle(pencere)
+            .then(({ durum }) => { if (durum === 'basarisiz') haberVer(pencere) })
+            .catch(() => haberVer(pencere))
     }
+
+    /* Önceki oturumdan kalmış, açılmış güncelleme paketi yüzlerce megabayt
+       tutuyor; her açılışta temizlenir. */
+    if (process.platform === 'darwin') macGuncelleme.artiklariTemizle()
 
     /* Açılışta hemen sorulmaz: ilk saniyeler pencerenin yüklenmesine ayrılır,
        araya bir diyalog girerse açılış animasyonunun üstüne biner. */
@@ -159,6 +158,43 @@ function guncellemeyiBaslat(pencere) {
  * "çalışmadı mı?" sorusunu doğurur.
  */
 async function simdiDenetle(pencere) {
+    /* macOS'ta uygulama içi kurulum mümkünse akışın tamamı oraya devredilir:
+       sürüm denetimi, indirme, doğrulama ve kurulum onayı orada. */
+    if (process.platform === 'darwin' && macGuncelleme.kurulabilir()) {
+        const { durum, hata } = await macGuncelleme.guncelle(pencere)
+
+        if (durum === 'guncel') {
+            await dialog.showMessageBox(pencere, {
+                type: 'info',
+                title: 'Güncelleme yok',
+                message: `En son sürümü kullanıyorsunuz (${app.getVersion()}).`,
+                buttons: ['Kapat'],
+            })
+
+            return
+        }
+
+        /* 'kuruluyor' ve 'ertelendi' durumlarında kullanıcıyla zaten
+           konuşuldu; üstüne bir kutu daha çıkarmak gereksiz. */
+        if (durum !== 'basarisiz') return
+
+        /* Uygulama içinde kurulamadı. Menüden tıklayan kullanıcıya hem
+           sebep söylenir hem de elle kurma yolu TEK kutuda sunulur. */
+        const { response } = await dialog.showMessageBox(pencere, {
+            type: 'warning',
+            buttons: ['Siteden indir', 'Kapat'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Uygulama içinde güncellenemedi',
+            message: 'Güncelleme uygulama içinde kurulamadı.',
+            detail: `${hata}\n\nSürümü siteden indirip kurabilirsiniz; ayarlarınız ve kayıtlarınız korunur.`,
+        })
+
+        if (response === 0) shell.openExternal(new URL('/uygulama', ADRES).toString())
+
+        return
+    }
+
     let bilgi
 
     try {

@@ -37,8 +37,15 @@ iz('bağlam menüsü yüklendi')
 /* Derin bağlantı şeması: ozgurtelli://danisanlar/5 uygulamada açılır. */
 const SEMA = 'ozgurtelli'
 
+/* Açılış ekranının en az bu kadar görünür kalması sağlanır. Marka
+   animasyonunun girişi 0,42 sn gecikmeli başlayıp 0,6 sn sürüyor; altında
+   bir değer ekranı görmeye yetmiyor. Üstünde bir değer ise açılışı
+   gereksiz yavaşlatır. */
+const ASGARI_ACILIS = 1700
+
 let pencere = null
 let acilis = null
+let acilisAni = 0
 let tepsi = null
 let bildirimZamanlayici = null
 let bildirimImleci = null
@@ -101,6 +108,11 @@ function acilisPenceresi() {
 
     acilis.loadFile(path.join(__dirname, 'acilis.html'))
     acilis.once('ready-to-show', () => {
+        /* Ekranın GERÇEKTEN göründüğü an. Kapanış bu ana göre gecikir:
+           site hızlı yüklendiğinde açılış ekranı yarım saniyeden az
+           kalıyordu, kullanıcı "şak diye geçti, hiç göremedim" dedi —
+           animasyonların girişi bile bitmiyordu. */
+        acilisAni = Date.now()
         acilis.show()
         acilis.webContents.send('acilis-surum', app.getVersion())
     })
@@ -126,11 +138,26 @@ function acilisiKapat(bitti) {
         return
     }
 
-    p.webContents.send('acilis-bitti')
+    /* Asgari görünme süresi. Altındaki hesap "yükleme bitti ama ekranı
+       bir anlık bile görmedim" durumunu engeller: sunucu hızlı cevap
+       verdiğinde fark kullanıcıya yansımaz, yavaş cevap verdiğinde de
+       fazladan bekleme OLMAZ, çünkü süre zaten geçmiş olur. */
+    const gecen = acilisAni ? Date.now() - acilisAni : ASGARI_ACILIS
+    const kalan = Math.max(0, ASGARI_ACILIS - gecen)
+
     setTimeout(() => {
-        if (!p.isDestroyed()) p.close()
-        bitti?.()
-    }, 240)
+        if (p.isDestroyed()) {
+            bitti?.()
+
+            return
+        }
+
+        p.webContents.send('acilis-bitti')
+        setTimeout(() => {
+            if (!p.isDestroyed()) p.close()
+            bitti?.()
+        }, 240)
+    }, kalan)
 }
 
 function asama(metin) {
@@ -417,10 +444,28 @@ function hizliGorevleriKur() {
 /* ------------------------------------------------------------------ tepsi */
 
 function tepsiKur() {
-    const simge = nativeImage.createFromPath(path.join(__dirname, '..', 'varliklar', 'tepsi.png'))
+    /*
+     * İki ayrı dosya, çünkü iki platform menü çubuğu simgesini farklı
+     * ele alıyor:
+     *
+     * macOS — simge "template" olmalı: yalnızca siyah ve saydamlık.
+     *   İşletim sistemi açık/koyu menü çubuğuna, vurgulanmış duruma ve
+     *   koyu moda göre rengi KENDİSİ veriyor. Renkli bir simge koymak
+     *   menü çubuğunda yamalı duruyordu, koyu menü çubuğunda ise siyah
+     *   simge görünmez oluyordu.
+     *
+     * Windows — template diye bir kavram yok; renkli simge kullanılır,
+     *   yoksa siyah simge koyu görev çubuğunda kaybolurdu.
+     */
+    const sablon = process.platform === 'darwin'
+    const dosya = sablon ? 'tepsi.png' : 'tepsi-win.png'
+    const simge = nativeImage.createFromPath(path.join(__dirname, '..', 'varliklar', dosya))
     if (simge.isEmpty()) return
 
-    tepsi = new Tray(simge.resize({ width: 18, height: 18 }))
+    const olculu = simge.resize({ width: 18, height: 18 })
+    if (sablon) olculu.setTemplateImage(true)
+
+    tepsi = new Tray(olculu)
     tepsi.setToolTip('Özgür Telli Finans')
     tepsi.setContextMenu(Menu.buildFromTemplate([
         { label: 'Pencereyi göster', click: () => { pencere?.show(); pencere?.focus() } },
@@ -494,8 +539,19 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-    // macOS'ta pencere kapanınca uygulama kapanmaz; platform alışkanlığı budur.
-    if (process.platform !== 'darwin') app.quit()
+    /*
+     * BİLEREK platform alışkanlığının dışına çıkılıyor.
+     *
+     * macOS'ta pencereyi kapatmak uygulamayı kapatmaz, Dock'ta açık kalır.
+     * Kullanıcı bunu hata olarak bildirdi: "x basıp kapatınca uygulamayı
+     * kapatmak yerine alta alıyor". Bu bir muhasebe uygulaması; gün
+     * sonunda kapatılıyor ve açık kalması "kapattım mı?" sorusu doğuruyor.
+     * Sahibinin açık isteğiyle her platformda kapanıyor.
+     *
+     * Arka planda bildirim toplama da böylece duruyor; pencere kapalıyken
+     * bildirim beklemek isteyen bir kullanım yok, uygulama kapatılıyor.
+     */
+    app.quit()
 })
 
 /* Güvenlik: uygulama içinden yeni pencere açılmasına ve izin isteklerine kapalıyız. */
