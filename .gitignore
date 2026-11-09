@@ -1,0 +1,5 @@
+node_modules/
+dagitim/
+cikti/
+*.log
+.DS_Store

@@ -1,0 +1,107 @@
+# Windows ve macOS paketlerini üretir.
+#
+# Neden GitHub üzerinde derleniyor: macOS paketi ancak gerçek bir Mac'te
+# düzgün üretilebilir (ve imza alınacaksa yalnızca orada imzalanabilir).
+# Barındırma sunucusu Linux, orada üretilen macOS paketi eksik kalıyor.
+# Burada her platform kendi işletim sisteminde derlenir.
+
+name: Paketleri üret
+
+on:
+  # Sürüm etiketi atıldığında: git tag v2.0.0 && git push --tags
+  push:
+    tags: ['v*']
+  # Elle çalıştırmak için (Actions sekmesinden "Run workflow").
+  workflow_dispatch:
+
+jobs:
+  derle:
+    strategy:
+      # fail-fast kapalı: Windows derlemesi hata verince macOS derlemesi de
+      # iptal olurdu; biri çalışıyorsa en azından o paket elde kalsın.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            ad: windows
+            komut: --win
+          - os: macos-latest
+            ad: macos
+            komut: --mac
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.ad }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # package-lock.json henüz yok (barındırma sunucusunda node kurulu değil,
+      # orada üretilemedi). İlk derlemeden sonra çıkan kilit dosyası depoya
+      # eklenirse burası "npm ci" ile sabitlenebilir.
+      - name: Bağımlılıklar
+        run: npm install
+
+      - name: Paketle
+        run: npx electron-builder ${{ matrix.komut }} --publish never
+        env:
+          # Electron'un GitHub'dan ikili indirirken kotaya takılmaması için.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Çıktıyı listele
+        shell: bash
+        run: ls -lh dagitim
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fzy-${{ matrix.ad }}
+          # latest.yml de alınır: güncelleme beslemesi o dosyayı okuyor,
+          # pakete eşlik etmezse otomatik güncelleme çalışmaz.
+          path: |
+            dagitim/*.exe
+            dagitim/*.dmg
+            dagitim/*.yml
+            dagitim/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+  yayinla:
+    # Paketleri siteye kopyalar. Gerekli gizli anahtarlar tanımlı değilse
+    # sessizce atlanır: anahtar yoksa iş başarısız görünmesin, paketler
+    # yine Actions çıktısından indirilebilir.
+    needs: derle
+    runs-on: ubuntu-latest
+    name: siteye yükle
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: paketler
+          merge-multiple: true
+
+      - name: Siteye kopyala
+        shell: bash
+        env:
+          SUNUCU: ${{ secrets.SUNUCU_ADRES }}
+          KULLANICI: ${{ secrets.SUNUCU_KULLANICI }}
+          ANAHTAR: ${{ secrets.SUNUCU_SSH_ANAHTARI }}
+          HEDEF: ${{ secrets.SUNUCU_HEDEF_DIZIN }}
+        run: |
+          if [ -z "$ANAHTAR" ] || [ -z "$SUNUCU" ]; then
+            echo "SSH anahtarı tanımlı değil; yükleme atlandı."
+            echo "Paketleri Actions çıktısından indirebilirsiniz."
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ANAHTAR" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SUNUCU" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ls -lh paketler
+          scp -i ~/.ssh/id_ed25519 -P "${{ secrets.SUNUCU_PORT || 22 }}" \
+              paketler/* "$KULLANICI@$SUNUCU:$HEDEF/"
+          echo "Yüklendi: $HEDEF"

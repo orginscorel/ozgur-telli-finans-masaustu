@@ -1,0 +1,21 @@
+{
+  "name": "ozgur-telli-finans",
+  "productName": "Özgür Telli Finans",
+  "version": "2.0.0",
+  "description": "Özgür Telli Fizyoterapi — finans ve klinik yönetimi masaüstü uygulaması",
+  "main": "kaynak/ana.js",
+  "private": true,
+  "author": "Özgür Telli Fizyoterapi",
+  "scripts": {
+    "basla": "electron .",
+    "windows": "electron-builder --win --publish never",
+    "macos": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  }
+}

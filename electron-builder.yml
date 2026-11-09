@@ -1,0 +1,70 @@
+# Paket yapılandırması.
+#
+# productName ESKİSİYLE BİREBİR AYNI kalmalı: kullanıcı tercihleri ve bildirim
+# belirteci işletim sisteminin userData klasöründe uygulama adının altında
+# duruyor. Ad değişse 1.1.0'dan gelen kullanıcı ayarlarını kaybeder ve bildirim
+# belirtecini yeniden bağlamak zorunda kalırdı.
+appId: com.ozgurtelli.finans
+productName: Özgür Telli Finans
+copyright: © Özgür Telli Fizyoterapi
+
+directories:
+  output: dagitim
+  buildResources: varliklar
+
+# Uygulamanın içine yalnızca gereken dosyalar girer.
+files:
+  - kaynak/**/*
+  - varliklar/tepsi.png
+  - package.json
+
+# Dosya adları ASCII tutulur: Türkçe karakterli dosya adları indirme
+# bağlantılarında ve bazı arşivleyicilerde bozuluyor.
+artifactName: fzy-${os}-${arch}-${version}.${ext}
+
+# Güncelleme beslemesi KENDİ SUNUCUMUZDA.
+#
+# GitHub deposu özel olduğu için "github" sağlayıcısı kullanılamaz: uygulamanın
+# içine bir GitHub anahtarı gömmek gerekirdi ve o anahtar paketi açan herkese
+# görünür olurdu. Bunun yerine iş akışı paketleri siteye yükler, uygulama
+# güncellemeyi oradan alır. Depo özel kalır, güncelleme otomatik olur.
+publish:
+  provider: generic
+  url: https://fzy.bogalab.com.tr/paket/
+  channel: latest
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: varliklar/icon.ico
+  # İmza yok: kullanıcı imzasız dağıtımı kabul etti. İlk kurulumda SmartScreen
+  # "Daha fazla bilgi → Yine de çalıştır" adımı gerekir, sonraki açılışlarda çıkmaz.
+  signAndEditExecutable: false
+
+nsis:
+  # oneClick kapalı: kullanıcı kurulum sihirbazını görsün, nereye kurulduğunu bilsin.
+  oneClick: false
+  # perMachine kapalı: yönetici izni İSTEMEZ. Klinik bilgisayarında yönetici
+  # hesabı olmayabilir; kullanıcı klasörüne kurulum her durumda çalışır.
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Özgür Telli Finans
+  language: "1055"  # Türkçe
+  # Kurulum bitince uygulama açılır; kaldırma sırasında ayarlar sorulmadan silinmez.
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  icon: varliklar/icon.icns
+  category: public.app-category.finance
+  darkModeSupport: true
+  # İmzasız paket: Gatekeeper ilk açılışta uyarır, kullanıcı sağ tık → Aç yapar.
+  identity: null
+
+dmg:
+  title: Özgür Telli Finans ${version}

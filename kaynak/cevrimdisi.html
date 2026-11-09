@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <title>Bağlantı yok</title>
+    <style>
+        /*
+            Çevrimdışı karşılama. Sunucuya ulaşılamadığında yüklenir; bu yüzden
+            TAMAMEN yereldir — dış bir dosyaya bağlı olsaydı o da yüklenemezdi.
+        */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            height: 100vh;
+            display: grid;
+            place-items: center;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            background: #f6f6f9;
+            color: #191c35;
+            -webkit-app-region: drag;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body { background: #0e1512; color: #e7efea; }
+            .kutu { background: #18211d !important; border-color: #324239 !important; }
+            .alt { color: #8fa298 !important; }
+        }
+
+        .kutu {
+            max-width: 26rem;
+            padding: 2rem;
+            border: 1px solid #e6e6ee;
+            border-radius: 16px;
+            background: #fff;
+            text-align: center;
+            -webkit-app-region: no-drag;
+        }
+
+        .ikon {
+            display: grid;
+            place-items: center;
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 1rem;
+            border-radius: 14px;
+            background: #eefaf4;
+            color: #0d8847;
+        }
+
+        h1 { font-size: 1.0625rem; font-weight: 650; margin-bottom: 0.5rem; }
+        .alt { font-size: 0.875rem; line-height: 1.55; color: #5e6382; }
+
+        button {
+            margin-top: 1.25rem;
+            padding: 0.625rem 1.25rem;
+            border: 0;
+            border-radius: 10px;
+            background: #0d8847;
+            color: #fff;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 120ms ease, filter 120ms ease;
+        }
+
+        button:hover { filter: brightness(1.08); }
+        button:active { transform: scale(0.97); }
+
+        .sayac { margin-top: 0.75rem; font-size: 0.75rem; color: #8a8ea8; min-height: 1.1em; }
+    </style>
+</head>
+<body>
+    <div class="kutu">
+        <div class="ikon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h.01"/><path d="M8.5 16.4a5 5 0 0 1 7 0"/>
+                <path d="M5 12.86a10 10 0 0 1 5.17-2.7"/><path d="M19 12.86a10 10 0 0 0-3.4-2.26"/>
+                <path d="m2 2 20 20"/>
+            </svg>
+        </div>
+
+        <h1>Sunucuya ulaşılamıyor</h1>
+        <p class="alt">
+            İnternet bağlantınız kesilmiş olabilir. Bağlantı gelince uygulama
+            kendiliğinden yeniden denenecek.
+        </p>
+
+        <button id="dene">Şimdi yeniden dene</button>
+        <p class="sayac" id="sayac"></p>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron')
+        let kalan = 10
+
+        const dene = () => ipcRenderer.invoke('yeniden-yukle')
+        document.getElementById('dene').addEventListener('click', dene)
+
+        // Geri çekilmeli deneme: her başarısız turda bekleme uzar, sunucu boşuna
+        // dövülmez ama kullanıcı da elle uğraşmak zorunda kalmaz.
+        const sayacOge = document.getElementById('sayac')
+        setInterval(() => {
+            kalan -= 1
+            sayacOge.textContent = kalan > 0 ? `${kalan} saniye içinde yeniden denenecek…` : 'Deneniyor…'
+            if (kalan <= 0) { kalan = 20; dene() }
+        }, 1000)
+
+        window.addEventListener('online', dene)
+    </script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <title>Özgür Telli Finans</title>
+    <style>
+        /*
+            Açılış ekranı. Tek dosya, dış istek yok: ağ beklenmeden anında çizilmeli —
+            açılışın "hızlı" hissedilmesinin tek yolu bu.
+
+            Renkler web arayüzünün marka belirteçleriyle aynı (--brand-500 / --brand-900).
+        */
+        :root {
+            --yesil: #0d8847;
+            --koyu: #05341b;
+            --metin: #e7efea;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-app-region: drag;
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            color: var(--metin);
+            background: radial-gradient(130% 110% at 50% 0%, #0f7a40 0%, var(--koyu) 62%, #021a0e 100%);
+            border-radius: 14px;
+        }
+
+        /* Arka planda yavaşça dönen ışık halkası — boş beklemeyi hareketli kılar. */
+        body::before {
+            content: '';
+            position: absolute;
+            inset: -40%;
+            background: conic-gradient(from 0deg, transparent 0 72%, rgba(79, 184, 127, 0.22) 85%, transparent 100%);
+            animation: don 7s linear infinite;
+        }
+
+        @keyframes don { to { transform: rotate(360deg); } }
+
+        .govde {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.25rem;
+            text-align: center;
+        }
+
+        .amblem {
+            position: relative;
+            display: grid;
+            place-items: center;
+            width: 84px;
+            height: 84px;
+            border-radius: 22px;
+            background: linear-gradient(140deg, #14a359, var(--koyu));
+            box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+            animation: nefes 2.6s var(--yumusak, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
+        }
+
+        @keyframes nefes {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50%      { transform: translateY(-5px) scale(1.035); }
+        }
+
+        /* Amblemden yayılan dalga: yüklemenin sürdüğünü sessizce anlatır. */
+        .amblem::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            border: 2px solid rgba(79, 184, 127, 0.5);
+            animation: dalga 2.6s ease-out infinite;
+        }
+
+        @keyframes dalga {
+            0%   { transform: scale(1);    opacity: 0.65; }
+            70%  { transform: scale(1.55); opacity: 0; }
+            100% { opacity: 0; }
+        }
+
+        .amblem svg { width: 40px; height: 40px; }
+
+        .ad {
+            font-size: 1.0625rem;
+            font-weight: 650;
+            letter-spacing: -0.015em;
+        }
+
+        .alt {
+            font-size: 0.8125rem;
+            opacity: 0.62;
+            min-height: 1.2em;
+        }
+
+        /* Belirsiz ilerleme çubuğu: yüzde bilmediğimiz için sahte yüzde göstermiyoruz. */
+        .cubuk {
+            position: relative;
+            width: 190px;
+            height: 3px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .cubuk span {
+            position: absolute;
+            inset: 0;
+            width: 42%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, transparent, #4fb87f, #9be6c0, transparent);
+            animation: kay 1.25s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+        }
+
+        @keyframes kay {
+            0%   { transform: translateX(-120%); }
+            100% { transform: translateX(290%); }
+        }
+
+        .surum {
+            position: absolute;
+            bottom: 14px;
+            font-size: 0.6875rem;
+            opacity: 0.4;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            body::before, .amblem, .amblem::after, .cubuk span { animation: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="govde">
+        <div class="amblem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>
+            </svg>
+        </div>
+
+        <div>
+            <p class="ad">Özgür Telli Finans</p>
+            <p class="alt" id="durum">Başlatılıyor…</p>
+        </div>
+
+        <div class="cubuk" role="progressbar" aria-label="Yükleniyor"><span></span></div>
+    </div>
+
+    <p class="surum" id="surum"></p>
+
+    <script>
+        // Ana süreç aşama bildirir; kullanıcı neyin beklendiğini görür.
+        const { ipcRenderer } = require('electron')
+
+        ipcRenderer.on('acilis-durum', (_olay, metin) => {
+            document.getElementById('durum').textContent = metin
+        })
+
+        ipcRenderer.on('acilis-surum', (_olay, surum) => {
+            document.getElementById('surum').textContent = 'Sürüm ' + surum
+        })
+    </script>
+</body>
+</html>
