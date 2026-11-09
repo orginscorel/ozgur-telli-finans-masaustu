@@ -244,12 +244,18 @@ jobs:
           # kullanıldı ve hiç çıktı vermedi: lldb toplu kipte komutları
           # sırayla çalıştırıyor, süreç henüz durmamış oluyordu. Yığın izi
           # ancak çökme kancasıyla alınabiliyor.
+          # Geçen turda "tail -80" kullanıldı ve asıl çöken thread #1
+          # listenin BAŞINDA olduğu için kesilip gitti. Artık çıktı
+          # dosyaya alınıp durma noktasından İTİBAREN yazdırılıyor.
           if command -v lldb >/dev/null 2>&1; then
             lldb -b \
-              -k "thread backtrace all" \
-              -k "thread info" \
+              -k "bt" \
+              -k "register read pc" \
+              -k "image lookup --verbose --address \$pc" \
               -k "quit" \
-              -o "run" -- "$ikili" 2>&1 | tail -80
+              -o "run" -- "$ikili" > lldb.log 2>&1
+            echo "--- durma noktasından itibaren ---"
+            sed -n '/stop reason/,$p' lldb.log | head -45
           else
             echo "lldb yok"
           fi
@@ -273,13 +279,35 @@ jobs:
           mkdir -p /tmp/bos
           printf '%s\n' '{"name":"bos","version":"1.0.0","main":"ana.js"}' > /tmp/bos/package.json
           printf '%s\n' 'const {app,BrowserWindow}=require("electron");app.whenReady().then(()=>{new BrowserWindow({show:false});setTimeout(()=>app.quit(),3000)})' > /tmp/bos/ana.js
-          cips=$(find node_modules/electron -maxdepth 5 -name Electron -type f 2>/dev/null | head -1)
-          echo "çıplak Electron: ${cips:-bulunamadı}"
-          if [ -n "$cips" ]; then
-            "$cips" /tmp/bos > bos.log 2>&1
+          # node_modules/electron/dist yok (electron-builder kendi
+          # önbelleğine indiriyor), bu yüzden önbellekteki zip açılıyor.
+          zip=$(find "$HOME/Library/Caches/electron" -name "*darwin-arm64*.zip" 2>/dev/null | head -1)
+          echo "önbellek zip: ${zip:-bulunamadı}"
+          if [ -n "$zip" ]; then
+            rm -rf /tmp/ciplak && mkdir -p /tmp/ciplak
+            unzip -q -o "$zip" -d /tmp/ciplak
+            /tmp/ciplak/Electron.app/Contents/MacOS/Electron /tmp/bos > bos.log 2>&1
             echo "çıplak Electron çıkışı: $?"
-          else
-            ls -1 node_modules/electron 2>/dev/null | head
+            tail -8 bos.log
+          fi
+
+          echo
+          echo "════════ 4f) denetim: ASCII uygulama adı ════════"
+          # Uygulama adı "Özgür Telli Finans" — Ö ve ü içeriyor. macOS
+          # dosya adlarını NFD, imza ve Info.plist ise NFC biçiminde
+          # tutabiliyor; bu uyuşmazlık yerel katmanda ölümcül olabilir.
+          # Sadece adı ASCII olan bir deneme paketi üretip çalıştırıyoruz:
+          # bu ayakta kalırsa sebep addır. (Paket yayınlanmaz.)
+          npx electron-builder --mac dir \
+            -c.productName="FzyDeneme" \
+            -c.directories.output=denetim > derleme-denetim.log 2>&1 \
+            && echo "deneme paketi üretildi" || { echo "deneme paketi üretilemedi"; tail -15 derleme-denetim.log; }
+          dene=$(find denetim -maxdepth 4 -path "*FzyDeneme.app/Contents/MacOS/FzyDeneme" 2>/dev/null | head -1)
+          echo "deneme ikilisi: ${dene:-bulunamadı}"
+          if [ -n "$dene" ]; then
+            FZY_IZ=1 "$dene" > dene.log 2>&1
+            echo "ASCII adlı paket çıkışı: $?"
+            grep "^\[iz\]" dene.log | tail -6
           fi
           tail -12 bos.log
 
