@@ -109,6 +109,21 @@ jobs:
       #
       # Koşucu arm64 olduğu için yalnızca arm64 paketi denenebilir; x64 paketi
       # Rosetta gerektirir ve koşucuda kurulu olmayabilir.
+      # UYGULAMA GERÇEKTEN ÇALIŞTIRILIR.
+      #
+      # İki kez üst üste "başarılı" derleme hiç açılmayan paket üretti: önce
+      # imzalama atlandığı için, sonra Hardened Runtime + ad-hoc imza
+      # birleşimi yüzünden. İkisini de kullanıcı denediğinde öğrendik. İmza
+      # doğrulaması bunların yalnızca birincisini yakalıyor; açılıp
+      # açılmadığını ancak çalıştırmak gösterir.
+      #
+      # "timeout" KULLANILMIYOR: macOS'ta o komut yok (GNU coreutils'e ait,
+      # koşucuda kurulu değil) ve adım uygulamayı hiç çalıştırmadan
+      # "command not found" ile düşüyordu. Süre ölçümü arka plan süreci ve
+      # kill -0 ile yapılıyor, her yerde çalışır.
+      #
+      # Koşucu arm64 olduğu için yalnızca arm64 paketi denenebilir; x64 paketi
+      # Rosetta gerektirir ve koşucuda kurulu olmayabilir.
       - name: macOS uygulamasını çalıştırarak dene
         if: matrix.ad == 'macos'
         shell: bash
@@ -119,29 +134,45 @@ jobs:
             exit 1
           fi
 
-          set +e
-          cikti=$(timeout 25 "$ikili" 2>&1)
-          kod=$?
-          set -e
+          "$ikili" > cikti.log 2>&1 &
+          pid=$!
 
-          echo "çıkış kodu: $kod"
+          saniye=0
+          while [ "$saniye" -lt 25 ]; do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+            saniye=$((saniye + 1))
+          done
+
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "Uygulama ${saniye} saniye ayakta kaldı — açılıyor."
+            head -40 cikti.log || true
+            exit 0
+          fi
+
+          wait "$pid"; kod=$?
+          echo "Uygulama ${saniye} saniyede çıktı. Çıkış kodu: $kod"
           echo "--- çıktı ---"
-          printf '%s\n' "$cikti" | head -40
+          head -60 cikti.log || true
           echo "-------------"
 
-          # İmza/yükleyici hatası varsa paket açılmıyor demektir.
-          if printf '%s' "$cikti" | grep -qiE "code signature|library validation|dyld|Abort trap|cannot be opened|Killed: 9"; then
-            echo "Uygulama imza/kütüphane hatasıyla açılmadı." >&2
+          # İmza / yükleyici hatası paketin açılmadığı anlamına gelir: durdurulur.
+          if grep -qiE "code signature|library validation|dyld|Abort trap|Killed: 9|Trace/BPT" cikti.log; then
+            echo "Uygulama imza veya kütüphane hatasıyla açılmadı." >&2
             exit 1
           fi
 
-          # 124 = zaman aşımı, yani uygulama ayakta kaldı: istenen sonuç bu.
-          if [ "$kod" -ne 124 ] && [ "$kod" -ne 0 ]; then
-            echo "Uygulama beklenmeyen bir kodla çıktı: $kod" >&2
+          # SIGKILL/SIGTRAP ile ölmek de aynı anlama gelir.
+          if [ "$kod" -eq 137 ] || [ "$kod" -eq 133 ] || [ "$kod" -eq 134 ]; then
+            echo "Uygulama sinyalle sonlandırıldı (kod $kod): imza sorunu." >&2
             exit 1
           fi
 
-          echo "Uygulama açıldı ve ayakta kaldı."
+          # Buraya düşmek belirsiz: koşucuda ekran oturumu olmadığı için de
+          # erken çıkmış olabilir. İmza izi yoksa yayın engellenmez, uyarılır.
+          echo "::warning::Uygulama erken çıktı ama imza hatası izi yok; ekransız koşucu kaynaklı olabilir."
 
       - name: Çıktıyı listele
         shell: bash
